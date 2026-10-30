@@ -1,0 +1,10 @@
+*.sqlite3
+*.db
+*.keystore
+*.jks
+local.properties
+.gradle/
+build/
+**/build/
+__pycache__/
+*.pyc
