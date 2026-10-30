@@ -18,6 +18,16 @@ capabilities in prose are not executable source and do not establish parity.
 The original v0.7 archive, its dependency versions, and original tests are needed
 before those components can be imported, executed, tested, or benchmarked.
 
+The source search also checked this repository's 13 pre-repair commits, all
+published branch/tag refs, and releases, plus the other repositories accessible
+to this session. No full v0.7 Python engine was found. Available encoded archives
+were inspected without executing their contents: one complete archive contained
+only an unrelated Android Java activity, while another source archive was
+incomplete and its recoverable entries contained no v0.7 Python modules. The
+missing bytes of that archive cannot be audited. This finding is limited to
+source accessible in this session; it does not establish that the original
+engine never existed elsewhere.
+
 ## Feature inventory
 
 | Capability | Status in this APK's source | Evidence and limits |

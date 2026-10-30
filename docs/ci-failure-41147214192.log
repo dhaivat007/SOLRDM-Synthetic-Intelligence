@@ -1,0 +1,8 @@
+2026-10-30T23:55:33.5007576Z > Task :app:assembleDebug
+2026-10-30T23:55:34.1898321Z > Task :app:assembleDebugAndroidTest
+2026-10-30T23:55:34.1898612Z > Task :app:testDebugUnitTest NO-SOURCE
+2026-10-30T23:55:41.0911888Z > Task :app:lintDebug FAILED
+2026-10-30T23:55:41.0926894Z ##[error]/home/runner/work/SOLRDM-Synthetic-Intelligence/SOLRDM-Synthetic-Intelligence/app/build.gradle:10: Error: Google Play requires that apps target API level 33 or higher. [ExpiredTargetSdkVersion]
+2026-10-30T23:55:41.1990958Z ##[error]  /home/runner/work/SOLRDM-Synthetic-Intelligence/SOLRDM-Synthetic-Intelligence/app/build.gradle:10: Error: Google Play requires that apps target API level 33 or higher. [ExpiredTargetSdkVersion]
+2026-10-30T23:55:41.2038370Z ##[error]/home/runner/work/SOLRDM-Synthetic-Intelligence/SOLRDM-Synthetic-Intelligence/app/build.gradle:10: Error: Google Play requires that apps target API level 33 or higher. [ExpiredTargetSdkVersion]
+2026-10-30T23:55:41.2157712Z BUILD FAILED in 37s

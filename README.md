@@ -22,7 +22,7 @@ Read the matching run's logs before claiming these checks passed. ARM64 is packa
 but physical-device execution is not established by an x86_64 emulator test.
 
 This development APK supports Android 8.0+ (API 26), contains ARM64 and x86_64
-native libraries, and currently targets API 28. Its generated debug signing key
+native libraries, and targets API 35. Its generated debug signing key
 may change between runs, preventing upgrades over a differently signed build.
 It is not a production-signed or Play Store release.
 

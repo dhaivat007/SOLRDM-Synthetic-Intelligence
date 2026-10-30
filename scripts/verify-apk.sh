@@ -18,7 +18,7 @@ apk = Path(sys.argv[1])
 badging = (apk.parent / 'apk-badging.txt').read_text()
 assert "package: name='org.solrdm.app' versionCode='8' versionName='0.7.1'" in badging, badging
 assert "sdkVersion:'26'" in badging, badging
-assert "targetSdkVersion:'28'" in badging, badging
+assert "targetSdkVersion:'35'" in badging, badging
 with zipfile.ZipFile(apk) as archive:
     abis = sorted({p.split('/')[1] for p in archive.namelist() if p.startswith('lib/') and p.endswith('.so')})
 assert abis == ['arm64-v8a', 'x86_64'], abis
@@ -27,7 +27,7 @@ sha256 = hashlib.sha256(apk.read_bytes()).hexdigest()
 run_url = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}" if 'GITHUB_RUN_ID' in os.environ else None
 metadata = dict(apk=apk.name, sha256=sha256, size_bytes=apk.stat().st_size,
                 package='org.solrdm.app', version_name='0.7.1', version_code=8,
-                min_sdk=26, target_sdk=28, abis=abis, signing='development debug certificate',
+                min_sdk=26, target_sdk=35, abis=abis, signing='development debug certificate',
                 commit=os.environ.get('GITHUB_SHA'), build_url=run_url,
                 engine='limited observation bridge; full v0.7 source unavailable')
 (apk.parent / 'build-info.json').write_text(json.dumps(metadata, indent=2) + '\n')

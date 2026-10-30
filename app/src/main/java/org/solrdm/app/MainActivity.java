@@ -11,6 +11,13 @@ public class MainActivity extends Activity {
     LinearLayout layout = new LinearLayout(this);
     layout.setOrientation(LinearLayout.VERTICAL);
     layout.setPadding(24, 24, 24, 24);
+    layout.setOnApplyWindowInsetsListener((view, insets) -> {
+      view.setPadding(24 + insets.getSystemWindowInsetLeft(),
+          24 + insets.getSystemWindowInsetTop(),
+          24 + insets.getSystemWindowInsetRight(),
+          24 + insets.getSystemWindowInsetBottom());
+      return insets;
+    });
     TextView title = new TextView(this); title.setText("SOLRDM • Observation Prototype"); title.setTextSize(22); layout.addView(title);
     EditText input = new EditText(this); input.setId(R.id.observation_input); input.setHint("Enter observation, e.g. A rotor is part of a motor"); layout.addView(input);
     Button observe = new Button(this); observe.setId(R.id.observe_button); observe.setText("Observe"); layout.addView(observe);
