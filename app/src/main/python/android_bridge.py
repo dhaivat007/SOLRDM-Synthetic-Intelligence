@@ -17,3 +17,4 @@ def observe(storage_dir, sentence):
         db.execute("INSERT INTO observations(subject,predicate,object) VALUES(?,?,?)", (subject, "part_of", obj))
         count = db.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
     return f"Stored: {subject} → part_of → {obj}. Observations: {count}"
+

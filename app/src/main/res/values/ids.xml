@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item name="observation_input" type="id" />
+    <item name="observe_button" type="id" />
+    <item name="observation_output" type="id" />
+</resources>

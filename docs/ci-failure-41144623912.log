@@ -1,0 +1,3 @@
+2026-10-30T23:28:08.7264914Z [command]/usr/local/lib/android/sdk/cmdline-tools/16.0/bin/sdkmanager tools
+2026-10-30T23:28:10.1207243Z Warning: Failed to find package 'tools'
+2026-10-30T23:28:10.1582182Z Error: The process '/usr/local/lib/android/sdk/cmdline-tools/16.0/bin/sdkmanager' failed with exit code 1
