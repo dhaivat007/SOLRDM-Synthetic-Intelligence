@@ -105,9 +105,16 @@ class SOLRDM:
     def validate(self, hypothesis: Fact, evidence: Fact) -> dict:
         """Confirm only exact matching triple with independent, explicit evidence."""
         same = (hypothesis.subject,hypothesis.relation,hypothesis.object) == (evidence.subject,evidence.relation,evidence.object)
-        independent = evidence.source not in ('inference','hypothesis')
+        source = evidence.source.strip().casefold() if isinstance(evidence.source, str) else ''
+        original_source = hypothesis.source.strip().casefold() if isinstance(hypothesis.source, str) else ''
+        # A repeated assertion is not independent evidence. These source labels
+        # explicitly identify derived or unverified assertions in this engine.
+        unverified = (source.split(':')[0] in ('inference', 'hypothesis')
+                      or 'unverified' in source.split(':') or source == 'android:user')
+        independent = bool(source) and source != original_source and not unverified
         verified = same and independent and evidence.confidence >= 0.8
         result = {'verified':verified,'evidence_source':evidence.source,
+                  'independent_source':independent,
                   'note':'Threshold-based evidence check, not proof of truth'}
         self.audit.append({'action':'validate','result':result})
         return result

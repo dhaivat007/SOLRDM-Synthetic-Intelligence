@@ -89,6 +89,8 @@ class RuleLearner:
         """Discover rules automatically. Approval defaults to human review.
         auto_approve only for explicitly authorized controlled environments.
         """
+        if type(auto_approve) is not bool:
+            raise ValueError('auto_approve must be boolean')
         reports=self.evaluate()
         for r in reports:
             rule=r['rule']; status='approved' if r['eligible'] and auto_approve else ('candidate' if r['eligible'] else 'rejected')

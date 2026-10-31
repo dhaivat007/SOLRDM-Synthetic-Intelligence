@@ -9,14 +9,14 @@
       "archive_sha256": "a394f49e7e2c4eba2f876ee46654b23c28712736004bcf22c0d328051aef089c",
       "integrated_sha256": "2585cc61601c69b99785825ed0dd89f4e9cf664c66d41048cb3bf2f0d1d0100e",
       "modified": true,
-      "note": "Adapt six commands to background worker, existing database location, explicit Python startup, resources, stable test IDs and API35 insets."
+      "note": "Six commands on a background worker with explicit Python startup, resources, IDs, lifecycle and insets handling."
     },
     {
       "path": "app/src/main/python/android_bridge.py",
       "archive_sha256": "f180f862c503624482d5468f7a356dd5fbe4d8d9a3f673c61cfe0254d17f9e0c",
-      "integrated_sha256": "3e6fb6ba0d3a763cebf3c6f07d111935a11ffbf49666520e11f313baef91c1bb",
+      "integrated_sha256": "70e0164e559116cde672653b25bedf9ad6dc0b307385f165638f2c0b7997c92c",
       "modified": true,
-      "note": "Replace global singleton adapter with isolated bounded commands, legacy migration, atomic neural state persistence, module inventory and explicit errors."
+      "note": "Isolated bounded commands, matching normalization without rewriting history, transactional migration, atomic neural persistence and explicit errors."
     },
     {
       "path": "app/src/main/python/solrdm/__init__.py",
@@ -35,9 +35,9 @@
     {
       "path": "app/src/main/python/solrdm/autonomy.py",
       "archive_sha256": "a54dea048e809d04606554303d5b00d4b07a2d7a00dfbc7558e72eaf7ed356d6",
-      "integrated_sha256": "be156b4ea4d43d20ab82600b8583b110d78caab6f9d2378987518eb3f22a5271",
+      "integrated_sha256": "baca3747f50fdedab9c7411543a453c8379f02ead74063c7902b7e536d226ec9",
       "modified": true,
-      "note": "Reject missing/mixed corroboration claims instead of pooling unrelated evidence."
+      "note": "Reject missing/mixed claims and require actual boolean review/support flags."
     },
     {
       "path": "app/src/main/python/solrdm/benchmark.py",
@@ -56,9 +56,9 @@
     {
       "path": "app/src/main/python/solrdm/core.py",
       "archive_sha256": "abe24386b1855bf72fe05412fe1b24746f984ed69c0b800d5694670a5d70a1eb",
-      "integrated_sha256": "03f897003f5634c1b6ccedb3072cd4b0a94e407dac6e8824ee822a66e50fdcbc",
+      "integrated_sha256": "3f6d2e8668370d968f17c7567f3e38628919a7c69060ba4b88b6cc24dd900670",
       "modified": true,
-      "note": "Keep strongest direct evidence and pending inference independent of insertion order."
+      "note": "Retain strongest evidence/path; reject self, same-source and explicitly unverified validation evidence."
     },
     {
       "path": "app/src/main/python/solrdm/discovery_v05.py",
@@ -70,9 +70,9 @@
     {
       "path": "app/src/main/python/solrdm/english.py",
       "archive_sha256": "5bdd029d203f7462c1223913eb39d8b2260119d892a3635948ce17b5937e7493",
-      "integrated_sha256": "5bdd029d203f7462c1223913eb39d8b2260119d892a3635948ce17b5937e7493",
-      "modified": false,
-      "note": "Copied unchanged from the supplied archive."
+      "integrated_sha256": "d208486021df5527f8db8de82cff4f2cea75d638c7a7c9d16f8d60c7a6d0cbea",
+      "modified": true,
+      "note": "Normalize simple leading articles and whitespace; abstain on conditional, compound and multiple-relation clauses."
     },
     {
       "path": "app/src/main/python/solrdm/independent_eval.py",
@@ -98,9 +98,9 @@
     {
       "path": "app/src/main/python/solrdm/learning.py",
       "archive_sha256": "253e589cb9f01f5c074a38905ce9d3adaf374a69721590731108ab037032e107",
-      "integrated_sha256": "253e589cb9f01f5c074a38905ce9d3adaf374a69721590731108ab037032e107",
-      "modified": false,
-      "note": "Copied unchanged from the supplied archive."
+      "integrated_sha256": "bd39f452f59d9893c5b815cdb2362c81ca8fbb15063e2286bea718098e262c16",
+      "modified": true,
+      "note": "Require an actual boolean for automatic rule-approval selection."
     },
     {
       "path": "app/src/main/python/solrdm/neural.py",
@@ -112,9 +112,9 @@
     {
       "path": "app/src/main/python/solrdm/research.py",
       "archive_sha256": "f21185ba7b53bae083ca39355ea8ff5aa84bfa38be9d19376c660421bd545912",
-      "integrated_sha256": "f21185ba7b53bae083ca39355ea8ff5aa84bfa38be9d19376c660421bd545912",
-      "modified": false,
-      "note": "Copied unchanged from the supplied archive."
+      "integrated_sha256": "bc7c92daf6c34076ea569aa80db503f26b5bdb2722a7b86a46b2e239f3d780aa",
+      "modified": true,
+      "note": "Require an actual boolean for explicit review approval."
     },
     {
       "path": "app/src/main/python/solrdm/science.py",

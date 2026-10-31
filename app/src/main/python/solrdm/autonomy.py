@@ -35,12 +35,15 @@ class EvidenceCorroborator:
             raise ValueError('Each observation requires a nonempty claim')
         if len(set(claim.strip() for claim in claims)) > 1:
             raise ValueError('Cannot corroborate different claims together')
+        if any(type(o.get('reviewed')) is not bool or type(o.get('supports')) is not bool
+               for o in observations):
+            raise ValueError('reviewed and supports must be boolean')
         domains={True:set(),False:set()}
         for o in observations:
-            if not o.get('reviewed'): continue
+            if not o['reviewed']: continue
             parsed=urlparse(o.get('url',''))
             if parsed.scheme!='https' or not parsed.hostname: continue
-            domains[bool(o['supports'])].add(parsed.hostname.lower())
+            domains[o['supports']].add(parsed.hostname.lower())
         conflict=bool(domains[True] and domains[False])
         return {'corroborated':len(domains[True])>=self.min_sources and not conflict,
                 'contradiction':conflict,'supporting_domains':len(domains[True]),

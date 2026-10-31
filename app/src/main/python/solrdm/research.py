@@ -17,6 +17,8 @@ class ResearchMemory:
     def pending(self):
         return self.db.execute('SELECT id,topic,title,source_url,status FROM research WHERE status=? ORDER BY id',('pending_review',)).fetchall()
     def review(self,record_id,approve):
+        if type(approve) is not bool:
+            raise ValueError('approve must be boolean')
         status='reviewed' if approve else 'rejected'
         cur=self.db.execute('UPDATE research SET status=? WHERE id=? AND status=?',(status,record_id,'pending_review'))
         self.db.commit(); return cur.rowcount==1

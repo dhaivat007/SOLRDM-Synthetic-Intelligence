@@ -134,8 +134,21 @@ def execute(db_path, command, payload):
             modules = _imports()
             core = modules["solrdm.core"]
             neural_class = modules["solrdm.neural"].NeuralRepresentations
+            def entity(value):
+                return modules["solrdm.english"].EnglishUnderstanding._entity(value) or value.strip().lower()
+
+            def relation_name(value):
+                return "_".join(value.lower().split())
+
+            def canonical_fact(fact):
+                return core.Fact(entity(fact.subject), relation_name(fact.relation),
+                                 entity(fact.object), fact.confidence, fact.source)
 
             class AndroidEngine(core.SOLRDM):
+                def facts(self):
+                    # Normalize matching without rewriting historical observations.
+                    return [canonical_fact(fact) for fact in super().facts()]
+
                 def infer(self, max_rounds=INFERENCE_ROUNDS, min_confidence=0.25):
                     return super().infer(max_rounds=min(max_rounds, INFERENCE_ROUNDS), min_confidence=min_confidence)
 
@@ -148,9 +161,9 @@ def execute(db_path, command, payload):
                     item = json.loads(payload)
                     if not isinstance(item, dict):
                         raise ValueError("Observation payload must be a JSON object")
-                    subject = _field(item.get("subject"), "subject")
-                    relation = _field(item.get("relation"), "relation")
-                    obj = _field(item.get("object"), "object")
+                    subject = entity(_field(item.get("subject"), "subject"))
+                    relation = relation_name(_field(item.get("relation"), "relation"))
+                    obj = entity(_field(item.get("object"), "object"))
                     confidence = item.get("confidence", 0.8)
                     if type(confidence) not in (int, float) or not math.isfinite(confidence):
                         raise ValueError("confidence must be a finite number between 0 and 1")
@@ -166,13 +179,19 @@ def execute(db_path, command, payload):
                 elif command == "query":
                     subject = payload.strip() or None
                     if subject is not None:
-                        subject = _field(subject, "query subject")
+                        subject = entity(_field(subject, "query subject"))
                     if count <= MAX_INFERENCE_FACTS:
                         facts = ai.query(subject=subject)
                         warning = None
                     else:
-                        rows = ai.db.execute("SELECT subject,relation,object,confidence,source FROM facts WHERE (? IS NULL OR subject=?) ORDER BY subject,relation,object,source LIMIT ?", (subject, subject, MAX_RESULTS + 1)).fetchall()
-                        facts = [core.Fact(*row) for row in rows]
+                        rows = ai.db.execute("SELECT subject,relation,object,confidence,source FROM facts ORDER BY subject,relation,object,source")
+                        facts = []
+                        for row in rows:
+                            fact = canonical_fact(core.Fact(*row))
+                            if subject is None or fact.subject == subject:
+                                facts.append(fact)
+                                if len(facts) > MAX_RESULTS:
+                                    break
                         warning = f"Inference skipped above {MAX_INFERENCE_FACTS} observations; returning stored facts only"
                     result = {"ok": True, "facts": [f.__dict__ for f in facts[:MAX_RESULTS]], "truncated": len(facts) > MAX_RESULTS, "inference_round_limit": INFERENCE_ROUNDS, "warning": warning}
                 elif command == "discover":
@@ -181,7 +200,12 @@ def execute(db_path, command, payload):
                     hypotheses = ai.discover()
                     result = {"ok": True, "hypotheses": hypotheses[:MAX_RESULTS], "truncated": len(hypotheses) > MAX_RESULTS, "inference_round_limit": INFERENCE_ROUNDS}
                 elif command == "neural_train":
-                    rows = ai.db.execute("SELECT DISTINCT subject,object FROM facts ORDER BY subject,object LIMIT ?", (MAX_TRAINING_FACTS + 1,)).fetchall()
+                    pairs = set()
+                    for subject, obj in ai.db.execute("SELECT subject,object FROM facts ORDER BY subject,object"):
+                        pairs.add((entity(subject), entity(obj)))
+                        if len(pairs) > MAX_TRAINING_FACTS:
+                            break
+                    rows = sorted(pairs)
                     if len(rows) > MAX_TRAINING_FACTS:
                         raise ValueError(f"Neural training is limited to {MAX_TRAINING_FACTS} distinct observed pairs")
                     if len(rows) < 2 or len({b for _, b in rows}) < 2:

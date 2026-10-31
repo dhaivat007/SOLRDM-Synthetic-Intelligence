@@ -53,24 +53,46 @@ jobs:
         run: python -m unittest discover -s tests -v 2>&1 | tee evidence/python-tests.log
       - name: Benchmark symbolic and neural components separately
         run: python scripts/benchmark_engine.py > evidence/engine-benchmarks.json
+      - name: Configure optional persistent debug signing
+        env:
+          SOLRDM_DEBUG_KEYSTORE_BASE64: ${{ secrets.SOLRDM_DEBUG_KEYSTORE_BASE64 }}
+          SOLRDM_DEBUG_STORE_PASSWORD: ${{ secrets.SOLRDM_DEBUG_STORE_PASSWORD }}
+          SOLRDM_DEBUG_KEY_ALIAS: ${{ secrets.SOLRDM_DEBUG_KEY_ALIAS }}
+          SOLRDM_DEBUG_KEY_PASSWORD: ${{ secrets.SOLRDM_DEBUG_KEY_PASSWORD }}
+        run: |
+          if [[ -n "$SOLRDM_DEBUG_KEYSTORE_BASE64" ]]; then
+            test -n "$SOLRDM_DEBUG_STORE_PASSWORD"
+            test -n "$SOLRDM_DEBUG_KEY_ALIAS"
+            test -n "$SOLRDM_DEBUG_KEY_PASSWORD"
+            printf '%s' "$SOLRDM_DEBUG_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/solrdm-debug.keystore"
+            chmod 600 "$RUNNER_TEMP/solrdm-debug.keystore"
+            echo "SOLRDM_DEBUG_KEYSTORE=$RUNNER_TEMP/solrdm-debug.keystore" >> "$GITHUB_ENV"
+            echo 'Using configured persistent debug signing.'
+          else
+            echo 'Using an ephemeral development key; future in-place updates require the same key.'
+          fi
       - name: Build signed debug APK and run Android checks
+        env:
+          SOLRDM_DEBUG_STORE_PASSWORD: ${{ secrets.SOLRDM_DEBUG_STORE_PASSWORD }}
+          SOLRDM_DEBUG_KEY_ALIAS: ${{ secrets.SOLRDM_DEBUG_KEY_ALIAS }}
+          SOLRDM_DEBUG_KEY_PASSWORD: ${{ secrets.SOLRDM_DEBUG_KEY_PASSWORD }}
         run: gradle --no-daemon --stacktrace assembleDebug assembleDebugAndroidTest testDebugUnitTest lintDebug 2>&1 | tee evidence/gradle.log
       - name: Verify signed APK and record provenance
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk dist/SOLRDM-0.7.2-debug.apk
-          bash scripts/verify-apk.sh dist/SOLRDM-0.7.2-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/SOLRDM-0.7.3-debug.apk
+          bash scripts/verify-apk.sh dist/SOLRDM-0.7.3-debug.apk
           cp docs/source-provenance.json evidence/engine-benchmarks.json dist/
       - name: Upload verified APK
         uses: actions/upload-artifact@v4
         with:
-          name: SOLRDM-Android-v0.7.2-debug-APK
+          name: SOLRDM-Android-v0.7.3-debug-APK
           path: dist/
           if-no-files-found: error
           retention-days: 30
       - name: Upload instrumentation APK
         uses: actions/upload-artifact@v4
         with:
-          name: SOLRDM-Android-v0.7.2-test-APK
+          name: SOLRDM-Android-v0.7.3-test-APK
           path: app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
           if-no-files-found: error
           retention-days: 30
@@ -102,17 +124,19 @@ jobs:
           log-accepted-android-sdk-licenses: false
       - uses: actions/download-artifact@v4
         with:
-          name: SOLRDM-Android-v0.7.2-debug-APK
+          name: SOLRDM-Android-v0.7.3-debug-APK
           path: dist
       - uses: actions/download-artifact@v4
         with:
-          name: SOLRDM-Android-v0.7.2-test-APK
+          name: SOLRDM-Android-v0.7.3-test-APK
           path: test-apk
+      - name: Build signing-conflict regression fixtures
+        run: bash scripts/build-installation-fixtures.sh installation-fixtures
       - name: Independently verify downloaded artifact
         run: |
           cd dist
           sha256sum --check SHA256SUMS
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs SOLRDM-0.7.2-debug.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs SOLRDM-0.7.3-debug.apk
       - name: Enable KVM access
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -126,7 +150,7 @@ jobs:
           target: default
           profile: pixel_2
           disable-animations: true
-          script: bash scripts/smoke-test.sh dist/SOLRDM-0.7.2-debug.apk test-apk/app-debug-androidTest.apk
+          script: bash scripts/smoke-test.sh dist/SOLRDM-0.7.3-debug.apk test-apk/app-debug-androidTest.apk installation-fixtures/legacy-old.apk installation-fixtures/legacy-replacement.apk
       - name: Retain emulator evidence
         if: always()
         uses: actions/upload-artifact@v4

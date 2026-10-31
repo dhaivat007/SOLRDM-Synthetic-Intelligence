@@ -17,9 +17,17 @@ import java.util.Set;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** Two UI-driven phases separated by a real process stop in scripts/smoke-test.sh. */
+/** Two UI-driven phases separated by a process stop and same-key APK update. */
 public class BridgeSmokeTest extends InstrumentationTestCase {
     private Activity activity;
+
+    @Override protected void setUp() throws Exception {
+        super.setUp();
+        assertEquals("Tests must target the separately installed debug app",
+                "org.solrdm.app.debug", context().getPackageName());
+        assertEquals("The instrumentation APK must use the matching debug ID",
+                "org.solrdm.app.debug.test", getInstrumentation().getContext().getPackageName());
+    }
 
     private Context context() {
         return getInstrumentation().getTargetContext();
@@ -130,7 +138,8 @@ public class BridgeSmokeTest extends InstrumentationTestCase {
 
     public void testFirstLaunchWritesObservation() throws Throwable {
         assertFalse("Start with cleared app data", databaseFile().exists());
-        // Seed the schema used by the earlier released bridge before the new app starts.
+        // Seed the earlier schema inside the new debug app; the separately
+        // installed old app's private database remains untouched and isolated.
         SQLiteDatabase legacy = SQLiteDatabase.openOrCreateDatabase(databaseFile(), null);
         try {
             legacy.execSQL("CREATE TABLE observations(subject TEXT, predicate TEXT, "
@@ -144,16 +153,16 @@ public class BridgeSmokeTest extends InstrumentationTestCase {
         assertModuleStatus(click(R.id.status_button), 1);
         assertEquals(1, rowCount("observations"));
         assertEquals(1, rowCount("facts"));
-        assertTrue(observe("motor", "part_of", "machine").getBoolean("ok"));
+        assertTrue(observe("The Motor", "Part Of", "A Machine").getBoolean("ok"));
         assertTrue(observe("wheel", "part_of", "car").getBoolean("ok"));
         assertEquals(3, rowCount("facts"));
 
-        english("rotor");
+        english("THE ROTOR");
         JSONArray facts = click(R.id.query_button).getJSONArray("facts");
         assertFact(facts, "rotor", "part_of", "motor", "android:legacy:observations:1");
         assertFact(facts, "rotor", "part_of", "machine", "inference");
 
-        english("Blade is part of rotor");
+        english("A Blade is part of the rotor");
         JSONObject parsed = click(R.id.interpret_button);
         assertEquals("candidate_fact", parsed.getString("intent"));
         assertFact(parsed.getJSONArray("candidate_facts"), "blade", "part_of", "rotor", null);
@@ -180,7 +189,8 @@ public class BridgeSmokeTest extends InstrumentationTestCase {
     }
 
     public void testRestartPreservesObservation() throws Throwable {
-        // These assertions run in the new app process before its Python runtime starts.
+        // The shell has force-stopped and reinstalled the same signed APK.
+        // Assert saved state before its Python runtime starts in the new process.
         assertTrue(databaseFile().isFile());
         assertEquals(3, rowCount("facts"));
         assertEquals(1, rowCount("observations"));
@@ -193,7 +203,7 @@ public class BridgeSmokeTest extends InstrumentationTestCase {
         assertEquals("Neural state must survive process restart", expectedSteps,
                 status.getLong("neural_training_steps"));
         assertEquals("Legacy migration must not duplicate observations", 3, rowCount("facts"));
-        english("rotor");
+        english("THE ROTOR");
         assertFact(click(R.id.query_button).getJSONArray("facts"),
                 "rotor", "part_of", "machine", "inference");
         assertTrue(observe("wing", "part_of", "aircraft").getBoolean("ok"));

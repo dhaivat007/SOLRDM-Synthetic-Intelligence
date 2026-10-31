@@ -45,7 +45,9 @@ a background worker and avoids updating a destroyed activity.
 
 The old `observations` table migrates to `facts` in one transaction with distinct
 legacy-row provenance. A migration marker prevents duplicate migration, original
-rows are retained, and the app keeps its original files-directory database path.
+rows are retained, and the app keeps the files-directory database filename within its own sandbox.
+Android 0.7.3 Debug has a separate application ID, so it does not automatically
+read data from the old installed app. This isolation avoids deleting that data.
 New observations with the same triple and source update that source's confidence.
 Migration does not overcome Android signing-key mismatch between CI builds.
 
@@ -53,7 +55,10 @@ Confirmed source defects were repaired with regressions: symbolic inference now
 retains the strongest evidence and strongest path independently of insertion
 order; supervised feedback rejects non-boolean labels; corroboration rejects
 missing/mixed claims instead of pooling unrelated evidence. Other supplied module
-algorithms remain research prototypes.
+algorithms remain research prototypes. A further review fixed article/case/spacing
+matching, abstention for compound and conditional statements, truthy-string
+approval/corroboration bypasses, and self/unverified evidence validation. The
+Android adapter normalizes entity matching without rewriting historical rows.
 
 The Android adapter currently allows 1,000 observations, 100 rows per response,
 inference over at most 100 observations and two rounds, and neural training over

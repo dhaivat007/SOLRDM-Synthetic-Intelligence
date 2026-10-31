@@ -62,6 +62,33 @@ class AndroidEngineBridgeTest(unittest.TestCase):
         self.assertEqual(discoveries[0]["hypothesis"]["object"], "machine")
         self.assertEqual(self.call("status")["observations"], 2)
 
+    def test_typed_entities_match_parser_and_query_despite_case_articles_and_spacing(self):
+        self.observe("  A Rotor ", "Part Of", "The Motor")
+        self.observe("motor", "part_of", "A Machine")
+        response = self.call("query", "THE ROTOR")
+        self.assertTrue(response["ok"], response)
+        facts = response["facts"]
+        self.assertTrue(any(f["object"] == "machine" and f["source"] == "inference" for f in facts))
+        candidate = self.call("interpret", "A rotor is part of a motor")["candidate_facts"][0]
+        self.assertTrue(any(all(f[k] == candidate[k] for k in ("subject", "relation", "object")) for f in facts))
+        self.observe("ROTOR", "PART_OF", "MOTOR", confidence=0.9)
+        self.assertEqual(self.call("status")["observations"], 2)
+
+    def test_existing_mixed_case_facts_match_without_rewriting_originals(self):
+        self.call("status")
+        with closing(sqlite3.connect(self.database)) as db:
+            db.executemany("INSERT INTO facts VALUES(?,?,?,?,?,?)", [
+                ("The Rotor", "Part Of", "A Motor", 0.8, "android:user", 1),
+                ("motor", "part_of", "machine", 0.8, "android:user", 2)])
+            db.commit()
+        self.assertTrue(any(f["object"] == "machine" for f in self.call("query", "rotor")["facts"]))
+        with mock.patch.object(bridge, "MAX_INFERENCE_FACTS", 1):
+            stored = self.call("query", "ROTOR")
+            self.assertEqual(stored["facts"][0]["subject"], "rotor")
+            self.assertIn("Inference skipped", stored["warning"])
+        with closing(sqlite3.connect(self.database)) as db:
+            self.assertEqual(db.execute("SELECT subject FROM facts WHERE created=1").fetchone()[0], "The Rotor")
+
     def test_repeated_user_fact_updates_its_source(self):
         self.observe(confidence=0.5)
         result = self.observe(confidence=0.9)
