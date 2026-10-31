@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item name="subject_input" type="id" />
+    <item name="relation_input" type="id" />
+    <item name="object_input" type="id" />
+    <item name="observation_input" type="id" />
+    <item name="observe_button" type="id" />
+    <item name="interpret_button" type="id" />
+    <item name="query_button" type="id" />
+    <item name="discover_button" type="id" />
+    <item name="neural_button" type="id" />
+    <item name="status_button" type="id" />
+    <item name="observation_output" type="id" />
+</resources>

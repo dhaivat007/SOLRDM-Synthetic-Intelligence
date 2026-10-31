@@ -2,6 +2,33 @@ plugins { id 'com.android.application'; id 'com.chaquo.python' }
 android {
  namespace 'org.solrdm.app'
  compileSdk 35
- defaultConfig { applicationId 'org.solrdm.app'; minSdk 26; targetSdk 28; versionCode 8; versionName '0.7.1'; ndk { abiFilters 'arm64-v8a', 'x86_64' } }
+ useLibrary 'android.test.runner'
+ useLibrary 'android.test.base'
+ defaultConfig {
+  applicationId 'org.solrdm.app'
+  minSdk 26
+  targetSdk 35
+  versionCode 10
+  versionName '0.7.3'
+  resValue 'string', 'app_name', 'SOLRDM'
+  testInstrumentationRunner 'android.test.InstrumentationTestRunner'
+  ndk { abiFilters 'arm64-v8a', 'x86_64' }
+ }
+ signingConfigs {
+  debug {
+   if (System.getenv('SOLRDM_DEBUG_KEYSTORE')) {
+    storeFile file(System.getenv('SOLRDM_DEBUG_KEYSTORE'))
+    storePassword System.getenv('SOLRDM_DEBUG_STORE_PASSWORD')
+    keyAlias System.getenv('SOLRDM_DEBUG_KEY_ALIAS')
+    keyPassword System.getenv('SOLRDM_DEBUG_KEY_PASSWORD')
+   }
+  }
+ }
+ buildTypes {
+  debug {
+   applicationIdSuffix '.debug'
+   resValue 'string', 'app_name', 'SOLRDM Debug'
+  }
+ }
 }
 chaquopy { defaultConfig { version = '3.11' } }
