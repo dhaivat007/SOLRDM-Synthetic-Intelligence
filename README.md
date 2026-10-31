@@ -1,32 +1,44 @@
 # SOLRDM — Synthetic Observational Learning, Reasoning & Discovery Model
 
-This Android research prototype embeds Python through Chaquopy and stores a
-limited `X is part of Y` observation pattern in SQLite. It contains no pretrained
-LLM. **The full historical SOLRDM v0.7 intelligence engine is not included.**
-See [the feature inventory](docs/ENGINE_PARITY.md) for source provenance and limits.
+Android 0.7.2 embeds the 16 Python modules from the supplied SOLRDM v0.7 source
+bundle through Chaquopy. It uses no pretrained LLM. The Android UI supports six
+operations: structured observations, limited English interpretation, memory queries
+with symbolic inference, unverified hypotheses, local neural training, and status.
+**Bundling every supplied module does not mean complete Android feature parity.**
+Advanced learning, science, and research workflows still lack Android controls.
+See [the feature inventory](docs/ENGINE_PARITY.md) and
+[source provenance](docs/source-provenance.json).
+
+Python work runs on a serial background worker. Observations persist in SQLite;
+neural parameters, training count, and random state persist beside that database.
+Existing observation-prototype rows migrate once with provenance; the original
+rows remain intact. Interpret English only proposes candidates and does not save
+them. Hypotheses and neural similarities are not verified truth.
 
 ## Build and download
 
 [Build SOLRDM Android APK](https://github.com/dhaivat007/SOLRDM-Synthetic-Intelligence/actions/workflows/build-android.yml)
-produces the `SOLRDM-Android-debug-APK` artifact. Select a successful run for the
-intended commit and download the artifact ZIP. It contains
-`SOLRDM-0.7.1-debug.apk`, `SHA256SUMS`, certificate verification output, package
-metadata, and the exact source commit and build URL in `build-info.json`.
+produces `SOLRDM-Android-v0.7.2-debug-APK`. Select a successful run for the intended
+commit and download its ZIP. It contains `SOLRDM-0.7.2-debug.apk`, `SHA256SUMS`,
+signature verification, package metadata, source hashes, and separate symbolic and
+neural benchmark results. `build-info.json` identifies the exact commit and run.
 Artifacts expire after 30 days and GitHub may require sign-in to download.
 
-The workflow tests Python behavior, builds the signed debug APK, runs Android lint,
-verifies the APK signature and checksum, and installs the downloaded artifact on
-an API 35 x86_64 emulator. Its two instrumentation phases click the UI's Observe
-button and check SQLite persistence after the app process is force-stopped.
-Read the matching run's logs before claiming these checks passed. ARM64 is packaged
-but physical-device execution is not established by an x86_64 emulator test.
+The workflow runs Python regression tests and synthetic benchmarks, builds both
+APKs, runs Android lint, verifies the signature/checksum and packaged module list,
+then installs the downloaded artifact on an Android 35 x86_64 emulator. Two
+instrumentation phases exercise all six UI commands, migrate old data, and check
+SQLite and neural state across a forced process restart. Read the exact run's logs
+before claiming these checks passed; source documentation is not execution proof.
 
-This development APK supports Android 8.0+ (API 26), contains ARM64 and x86_64
-native libraries, and targets API 35. Its generated debug signing key
-may change between runs, preventing upgrades over a differently signed build.
-It is not a production-signed or Play Store release.
+The APK supports Android 8.0+ (API 26), targets API 35, and packages ARM64 and
+x86_64 libraries. Physical-device/ARM64 execution needs separate verification.
+Android-generated debug keys can differ across CI runs, preventing installation as
+an update over an APK signed with another key. Uninstalling deletes app data; the
+migration checks do not establish upgrade compatibility between different keys.
+This is a development build, not a production-signed or Play Store release.
 
-[CI diagnosis and reproduction instructions](docs/CI_REPAIR.md) describe the SDK
-setup failure and validation procedure. Never commit API keys, signing keys,
-user data, or research databases. Internet learning must use approved sources and
-validation gates; this bridge performs no internet ingestion.
+[CI diagnosis and reproduction](docs/CI_REPAIR.md) documents the repaired SDK setup.
+Never commit signing keys, credentials, research databases, or trained user models.
+The manifest has no Internet permission, and the app does not schedule autonomous
+research. Research modules are tested with synthetic transports only.

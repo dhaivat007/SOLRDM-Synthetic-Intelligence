@@ -42,5 +42,5 @@ if [[ -n "$(adb shell pidof org.solrdm.app | tr -d '\r' || true)" ]]; then
 fi
 echo 'App process stopped between write and read phases.' | tee evidence/process-restart.txt
 run_phase testRestartPreservesObservation evidence/instrumentation-restart.txt
-echo 'PASS: APK installation, UI → Python, rejected input, and SQLite persistence after process restart.' \
+echo 'PASS: APK installation, all 16 module imports, UI observation/interpretation/inference/hypotheses/neural training/status, legacy migration, and SQLite plus neural persistence after process restart.' \
   | tee evidence/smoke-result.txt

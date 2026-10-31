@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_heading">SOLRDM • Native Python research engine</string>
+    <string name="engine_limits">Offline prototype. No pretrained LLM. Observations are user assertions; hypotheses and neural similarities are not verified truth. Some bundled research modules have no Android controls.</string>
+    <string name="subject_hint">Subject, e.g. rotor</string>
+    <string name="relation_hint">Relation, e.g. part_of</string>
+    <string name="object_hint">Object, e.g. motor</string>
+    <string name="english_hint">Statement to interpret, or subject to query (blank queries all)</string>
+    <string name="save_observation">Save observation</string>
+    <string name="interpret_english">Interpret English without saving</string>
+    <string name="query_memory">Query memory and infer</string>
+    <string name="discover_hypotheses">Generate unverified hypotheses</string>
+    <string name="train_neural">Train on local observations</string>
+    <string name="engine_status">Engine status</string>
+    <string name="engine_working">Working…</string>
+    <string name="engine_error">Engine error: %1$s</string>
+</resources>

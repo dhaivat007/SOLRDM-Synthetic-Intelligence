@@ -1,90 +1,205 @@
 package org.solrdm.app;
 
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
+import android.os.SystemClock;
 import android.test.InstrumentationTestCase;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
 import java.io.File;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
-/** Run the two phases separately with scripts/smoke-test.sh, which kills the process. */
+/** Two UI-driven phases separated by a real process stop in scripts/smoke-test.sh. */
 public class BridgeSmokeTest extends InstrumentationTestCase {
     private Activity activity;
 
-    private void launch() {
-        Intent intent = new Intent(getInstrumentation().getTargetContext(), MainActivity.class);
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        activity = getInstrumentation().startActivitySync(intent);
-        getInstrumentation().waitForIdleSync();
-    }
-
-    private String observe(final String sentence) throws Throwable {
-        final String[] response = new String[1];
-        runTestOnUiThread(() -> {
-            EditText input = activity.findViewById(R.id.observation_input);
-            Button button = activity.findViewById(R.id.observe_button);
-            TextView output = activity.findViewById(R.id.observation_output);
-            assertNotNull(input);
-            assertNotNull(button);
-            assertNotNull(output);
-            input.setText(sentence);
-            assertTrue("Observe click was not handled", button.performClick());
-            response[0] = output.getText().toString();
-        });
-        return response[0];
+    private Context context() {
+        return getInstrumentation().getTargetContext();
     }
 
     private File databaseFile() {
-        return new File(getInstrumentation().getTargetContext().getFilesDir(), "solrdm.sqlite3");
+        return new File(context().getFilesDir(), "solrdm.sqlite3");
     }
 
-    private void assertRows(int expected) {
-        assertTrue("Python SQLite database is missing", databaseFile().isFile());
+    private void launch() throws Exception {
+        Intent intent = new Intent(context(), MainActivity.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        activity = getInstrumentation().startActivitySync(intent);
+        getInstrumentation().waitForIdleSync();
+        awaitResponse();
+    }
+
+    private JSONObject awaitResponse() throws Exception {
+        long deadline = SystemClock.uptimeMillis() + 60000;
+        final boolean[] done = new boolean[1];
+        final String[] response = new String[1];
+        while (SystemClock.uptimeMillis() < deadline) {
+            getInstrumentation().runOnMainSync(() -> {
+                Button status = activity.findViewById(R.id.status_button);
+                TextView output = activity.findViewById(R.id.observation_output);
+                assertNotNull(status);
+                assertNotNull(output);
+                done[0] = status.isEnabled();
+                response[0] = output.getText().toString();
+            });
+            if (done[0]) return new JSONObject(response[0]);
+            SystemClock.sleep(50);
+        }
+        fail("Python worker did not finish within 60 seconds; output=" + response[0]);
+        return null;
+    }
+
+    private JSONObject click(int buttonId) throws Throwable {
+        runTestOnUiThread(() -> {
+            Button button = activity.findViewById(buttonId);
+            assertNotNull(button);
+            assertTrue("Command still busy", button.isEnabled());
+            assertTrue("Command click was not handled", button.performClick());
+        });
+        return awaitResponse();
+    }
+
+    private void english(String text) throws Throwable {
+        runTestOnUiThread(() -> {
+            EditText field = activity.findViewById(R.id.observation_input);
+            field.setText(text);
+        });
+    }
+
+    private JSONObject observe(String subject, String relation, String object) throws Throwable {
+        runTestOnUiThread(() -> {
+            ((EditText) activity.findViewById(R.id.subject_input)).setText(subject);
+            ((EditText) activity.findViewById(R.id.relation_input)).setText(relation);
+            ((EditText) activity.findViewById(R.id.object_input)).setText(object);
+        });
+        return click(R.id.observe_button);
+    }
+
+    private int rowCount(String table) {
         SQLiteDatabase db = SQLiteDatabase.openDatabase(
                 databaseFile().getAbsolutePath(), null, SQLiteDatabase.OPEN_READONLY);
         try {
-            Cursor count = db.rawQuery("SELECT COUNT(*) FROM observations", null);
+            Cursor rows = db.rawQuery("SELECT COUNT(*) FROM " + table, null);
             try {
-                assertTrue(count.moveToFirst());
-                assertEquals(expected, count.getInt(0));
+                assertTrue(rows.moveToFirst());
+                return rows.getInt(0);
             } finally {
-                count.close();
-            }
-            Cursor fact = db.rawQuery(
-                    "SELECT subject, predicate, object FROM observations ORDER BY rowid LIMIT 1", null);
-            try {
-                assertTrue(fact.moveToFirst());
-                assertEquals("rotor", fact.getString(0));
-                assertEquals("part_of", fact.getString(1));
-                assertEquals("motor", fact.getString(2));
-            } finally {
-                fact.close();
+                rows.close();
             }
         } finally {
             db.close();
         }
     }
 
+    private void assertFact(JSONArray facts, String subject, String relation,
+                            String object, String source) throws Exception {
+        for (int i = 0; i < facts.length(); i++) {
+            JSONObject fact = facts.getJSONObject(i);
+            if (subject.equals(fact.getString("subject"))
+                    && relation.equals(fact.getString("relation"))
+                    && object.equals(fact.getString("object"))
+                    && (source == null || source.equals(fact.getString("source")))) return;
+        }
+        fail("Missing fact " + subject + "/" + relation + "/" + object + " in " + facts);
+    }
+
+    private void assertModuleStatus(JSONObject status, int observations) throws Exception {
+        assertFalse(status.has("error"));
+        assertEquals(observations, status.getInt("observations"));
+        assertFalse(status.getBoolean("general_intelligence"));
+        assertFalse(status.getBoolean("integration_complete"));
+        JSONArray modules = status.getJSONArray("imported_modules");
+        Set<String> actual = new HashSet<>();
+        for (int i = 0; i < modules.length(); i++) actual.add(modules.getString(i));
+        Set<String> expected = new HashSet<>(Arrays.asList(
+                "solrdm", "solrdm.core", "solrdm.learning", "solrdm.neural",
+                "solrdm.science", "solrdm.self_learning", "solrdm.english",
+                "solrdm.internet", "solrdm.research", "solrdm.autonomy",
+                "solrdm.language_learning", "solrdm.discovery_v05", "solrdm.agent_v06",
+                "solrdm.compositional", "solrdm.benchmark", "solrdm.independent_eval"));
+        assertEquals("Every supplied module must import on Android", expected, actual);
+    }
+
     public void testFirstLaunchWritesObservation() throws Throwable {
-        assertFalse("Start the write phase with cleared app data", databaseFile().exists());
+        assertFalse("Start with cleared app data", databaseFile().exists());
+        // Seed the schema used by the earlier released bridge before the new app starts.
+        SQLiteDatabase legacy = SQLiteDatabase.openOrCreateDatabase(databaseFile(), null);
+        try {
+            legacy.execSQL("CREATE TABLE observations(subject TEXT, predicate TEXT, "
+                    + "object TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+            legacy.execSQL("INSERT INTO observations(subject,predicate,object) VALUES(?,?,?)",
+                    new Object[]{"rotor", "part_of", "motor"});
+        } finally {
+            legacy.close();
+        }
         launch();
-        assertEquals("Stored: rotor → part_of → motor. Observations: 1",
-                observe("Rotor is part of a motor"));
-        assertRows(1);
-        assertEquals("Unsupported sentence structure; no fact saved.", observe("Unsupported input"));
-        assertRows(1);
+        assertModuleStatus(click(R.id.status_button), 1);
+        assertEquals(1, rowCount("observations"));
+        assertEquals(1, rowCount("facts"));
+        assertTrue(observe("motor", "part_of", "machine").getBoolean("ok"));
+        assertTrue(observe("wheel", "part_of", "car").getBoolean("ok"));
+        assertEquals(3, rowCount("facts"));
+
+        english("rotor");
+        JSONArray facts = click(R.id.query_button).getJSONArray("facts");
+        assertFact(facts, "rotor", "part_of", "motor", "android:legacy:observations:1");
+        assertFact(facts, "rotor", "part_of", "machine", "inference");
+
+        english("Blade is part of rotor");
+        JSONObject parsed = click(R.id.interpret_button);
+        assertEquals("candidate_fact", parsed.getString("intent"));
+        assertFact(parsed.getJSONArray("candidate_facts"), "blade", "part_of", "rotor", null);
+        assertEquals("Interpreting must not silently store candidate facts", 3, rowCount("facts"));
+
+        JSONArray hypotheses = click(R.id.discover_button).getJSONArray("hypotheses");
+        assertTrue(hypotheses.length() > 0);
+        for (int i = 0; i < hypotheses.length(); i++) {
+            assertEquals("unverified", hypotheses.getJSONObject(i).getString("status"));
+        }
+        assertEquals("Inferences must not become observations", 3, rowCount("facts"));
+        assertTrue(observe("", "part_of", "machine").has("error"));
+        assertEquals(3, rowCount("facts"));
+
+        JSONObject trained = click(R.id.neural_button);
+        long steps = trained.getJSONObject("training").getLong("steps");
+        assertTrue("Neural updates must actually execute", steps > 0);
+        JSONObject status = click(R.id.status_button);
+        assertModuleStatus(status, 3);
+        assertEquals(steps, status.getLong("neural_training_steps"));
+        assertTrue(new File(databaseFile().getAbsolutePath() + ".neural.json").isFile());
+        assertTrue(context().getSharedPreferences("smoke_expectations", Context.MODE_PRIVATE)
+                .edit().putLong("neural_steps", steps).commit());
     }
 
     public void testRestartPreservesObservation() throws Throwable {
-        // Check persistence before loading the Python runtime in the new process.
-        assertRows(1);
+        // These assertions run in the new app process before its Python runtime starts.
+        assertTrue(databaseFile().isFile());
+        assertEquals(3, rowCount("facts"));
+        assertEquals(1, rowCount("observations"));
+        long expectedSteps = context().getSharedPreferences("smoke_expectations", Context.MODE_PRIVATE)
+                .getLong("neural_steps", -1);
+        assertTrue(expectedSteps > 0);
         launch();
-        assertEquals("Stored: wheel → part_of → car. Observations: 2",
-                observe("Wheel is part of a car"));
-        assertRows(2);
+        JSONObject status = click(R.id.status_button);
+        assertModuleStatus(status, 3);
+        assertEquals("Neural state must survive process restart", expectedSteps,
+                status.getLong("neural_training_steps"));
+        assertEquals("Legacy migration must not duplicate observations", 3, rowCount("facts"));
+        english("rotor");
+        assertFact(click(R.id.query_button).getJSONArray("facts"),
+                "rotor", "part_of", "machine", "inference");
+        assertTrue(observe("wing", "part_of", "aircraft").getBoolean("ok"));
+        assertEquals(4, rowCount("facts"));
+        assertEquals(1, rowCount("observations"));
+        assertModuleStatus(click(R.id.status_button), 4);
     }
 
     @Override protected void tearDown() throws Exception {

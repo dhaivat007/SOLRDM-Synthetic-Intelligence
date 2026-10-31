@@ -6,7 +6,7 @@ After fixing SDK setup, run https://github.com/dhaivat007/SOLRDM-Synthetic-Intel
 
 The workflow overrides that default with `platform-tools platforms;android-35 build-tools;35.0.0`. It uses Java 17, Gradle 8.9, Android Gradle Plugin 8.7.3, Chaquopy 16.1.0 and Python 3.11. Both Gradle plugin and dependency resolution include the Chaquopy Maven repository. No native source is compiled, so the previously requested NDK installation is unnecessary.
 
-The build runs Python regression tests, `assembleDebug`, `assembleDebugAndroidTest`, `testDebugUnitTest` and `lintDebug`. No standalone Java unit tests exist yet; the Gradle unit-test task must not be described as a passing Java test suite if it reports NO-SOURCE. The separate emulator job installs the downloaded, checksum-verified APK on Android API 35 x86_64, tests the UI/Python bridge, force-stops the app, and verifies committed observations in a new process. Instrumentation uses Android's legacy test runner, declared through optional SDK test libraries.
+The build runs Python engine/bridge regression tests, separate symbolic/neural synthetic benchmarks, `assembleDebug`, `assembleDebugAndroidTest`, `testDebugUnitTest` and `lintDebug`. No standalone Java unit tests exist yet; the Gradle unit-test task must not be described as a passing Java test suite if it reports NO-SOURCE. The separate emulator job installs the downloaded, checksum-verified APK on Android API 35 x86_64, tests the UI/Python bridge, force-stops the app, and verifies committed observations and persisted neural state in a new process. The v0.7.2 tests also cover legacy-data migration, all 16 module imports, and all six UI commands. Instrumentation uses Android's legacy test runner, declared through optional SDK test libraries.
 
 The APK artifact includes `SHA256SUMS`, `signature.txt`, `apk-badging.txt` and `build-info.json`. `apksigner verify --verbose --print-certs` must pass before upload. The emulator job downloads the exact artifact and verifies its signature and SHA-256 again. Build reports/logs and emulator evidence are uploaded separately, including on failure. Signing is Android's generated development debug certificate; keys and databases are never uploaded. A new runner may generate a different debug key and APK hash, so this is a reproducible build procedure, not a promise of byte-identical artifacts or upgrade-compatible signatures across runs.
 
@@ -15,6 +15,7 @@ To reproduce with Java 17, Python 3.11, Gradle 8.9 and an Android SDK configured
 ```sh
 sdkmanager 'platform-tools' 'platforms;android-35' 'build-tools;35.0.0'
 python3 -m unittest discover -s tests -v
+python3 scripts/benchmark_engine.py
 gradle --no-daemon --stacktrace assembleDebug assembleDebugAndroidTest testDebugUnitTest lintDebug
 bash scripts/verify-apk.sh app/build/outputs/apk/debug/app-debug.apk
 # With a running, disposable Android API 35 emulator:

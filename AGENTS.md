@@ -4,7 +4,7 @@
 Build and verify a real installable Android APK for SOLRDM (Synthetic Observational Learning, Reasoning & Discovery Model). Preserve Option 1: no pretrained LLM as the intelligence engine.
 
 ## Repository status
-The current Android app contains a limited Python observation bridge, NOT the full historical v0.7 engine. Do not claim full engine integration until the actual v0.7 modules are imported, executed, and tested. If prior source archives are unavailable, report that and request the files rather than inventing missing modules.
+The Android app now includes all 16 Python modules from the user-supplied v0.7 source archive. Six offline operations are exposed in the UI; advanced library workflows are not complete Android feature parity. Preserve the source hashes in docs/source-provenance.json. Do not claim full historical parity or successful Android execution without the matching tests and artifact evidence.
 
 ## Immediate steps
 1. Inspect Gradle, Android Gradle Plugin, Chaquopy repositories, Android SDK, and workflow. Run the GitHub Actions equivalent build in a cloud development environment.

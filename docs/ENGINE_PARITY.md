@@ -1,68 +1,79 @@
-# SOLRDM Android engine scope and verification
+# Supplied v0.7 engine integration and limits
 
-The bundled Python code is an observation subset. It is **not the full historical
-SOLRDM v0.7 intelligence engine**. A successful APK build or bridge smoke test does
-not establish full engine integration or general intelligence.
-
-## Available source
-
-The starting Android source contains one Python module:
-`app/src/main/python/android_bridge.py`, Git blob
-`83ad333836e462f8f2ee9dfe2d0f8bfdaa90c40a`. It imports only Python's standard-library
-`os`, `sqlite3`, and `re` modules. `MainActivity` invokes its `observe` function
-through Chaquopy. There are no pretrained LLM dependencies.
-
-No historical v0.7 Python modules or source archive were present in the supplied
-workspace or this repository's starting source tree. References to v0.7 research
-capabilities in prose are not executable source and do not establish parity.
-The original v0.7 archive, its dependency versions, and original tests are needed
-before those components can be imported, executed, tested, or benchmarked.
-
-The source search also checked this repository's 13 pre-repair commits, all
-published branch/tag refs, and releases, plus the other repositories accessible
-to this session. No full v0.7 Python engine was found. Available encoded archives
-were inspected without executing their contents: one complete archive contained
-only an unrelated Android Java activity, while another source archive was
-incomplete and its recoverable entries contained no v0.7 Python modules. The
-missing bytes of that archive cannot be audited. This finding is limited to
-source accessible in this session; it does not establish that the original
-engine never existed elsewhere.
+The user supplied `SOLRDM_Android_FullEngine_v0_7_Source.zip`, SHA-256
+`03fe799e305671542961d7cb689da9d18c9fd166fac88a07815f1632d9329e8c`.
+It contains 16 `solrdm` Python source files plus an Android bridge and UI. All 16
+are included in this app. This is provenance from the supplied archive, not an
+independent claim that it matches an otherwise unavailable historical repository.
+The archive contained no original test suite or APK and explicitly disclaimed
+complete Android UI parity. Per-file original and integrated hashes are recorded
+in `source-provenance.json`.
 
 ## Feature inventory
 
-| Capability | Status in this APK's source | Evidence and limits |
+| Module / capability | Android exposure | Verification and remaining limits |
 | --- | --- | --- |
-| Android-to-Python bridge | Implemented | `MainActivity` calls `android_bridge.observe`; on-device execution must be confirmed by the matching CI emulator test report. |
-| Structured observation memory | Partial | Recognizes one ASCII English sentence pattern, `X is part of Y`, normalizes case, and appends a `part_of` relation to SQLite. |
-| Durable SQLite storage | Working in host tests | Separate Python processes reopen the same database and retain previous observations. Android app process restart requires the separate emulator evidence. |
-| Input rejection | Working in host tests | Unsupported patterns and inputs over 2,000 characters do not write observations. This is not a source validation or fact-checking system. |
-| Observation retrieval | Partial | Returns the newly stored fact and total row count. No query interface, deduplication, or knowledge graph traversal is implemented. |
-| General symbolic reasoning | Unavailable | No v0.7 inference module or rule engine is bundled; regex extraction is not inference. |
-| Learned English intent model | Unavailable | No training or inference module is bundled. |
-| Rule induction | Unavailable | No induction module is bundled. |
-| Neural component | Unavailable | No custom neural source, model, training loop, or benchmark is bundled. |
-| Scientific discovery | Unavailable | No discovery module or evaluation dataset is bundled. |
-| Autonomous internet ingestion | Absent | The bridge performs no network requests. |
+| `__init__` and all 15 submodules | Imported by status and bridge commands | APK verification asserts all 16 compiled modules are packaged; emulator status asserts all 16 import. Import alone does not exercise every feature. |
+| `core`: observations, query, inference, hypotheses | Save, Query, Generate hypotheses | SQLite records retain source/confidence; derived facts are not stored as observations. Host tests and emulator UI assertions cover a two-hop inference. Confidence combination is heuristic, not calibrated truth. |
+| `english`: interpretation | Interpret English without saving | Limited patterns and explicit abstention on negation/uncertainty. Parsed candidates require a separate explicit observation. This is not general language understanding. |
+| `neural`: from-scratch pair representations | Train on local observations | Real supplied training code runs. Weights, count, and RNG state persist; host tests and emulator restart assertions cover persistence. Similarity is not factual confidence. |
+| `learning`: supervised rule induction | Bundled, no UI workflow | Host tests cover train/holdout cases, pending approval, approve/revoke and persistence. Not general self-learning. |
+| `self_learning`: feedback/cycle | Bundled, no UI workflow | Host tests exercise bounded candidate proposals and boolean labels; approval remains separate. |
+| `science`: linear relationships | Bundled, no UI workflow | Host tests exercise synthetic grouped measurements and holdout fit; observational relationships remain unverified. |
+| `discovery_v05`: numerical hypotheses | Bundled, no UI workflow | Host tests cover candidates on authored synthetic measurements. Selection on the same small holdout is exploratory, not independent validation. |
+| `language_learning`: intent classification and gates | Bundled, no UI training workflow | Host tests and synthetic benchmark exercise fit/predict/evaluate and rollback. The hashed classifier is not an LLM. |
+| `compositional`: intent features | Bundled, no UI workflow | Exercised by host tests and supplied synthetic evaluation; no claim of general comprehension. |
+| `agent_v06`: bounded proposed plan | Bundled, no UI workflow | Host tests cover abstention and proposed next actions; it does not execute autonomous tasks. |
+| `internet`, `research`, `autonomy` | Bundled; network unavailable to app | Tests use synthetic injected transport and explicit review. Manifest has no Internet permission; no scheduler runs on import. Live web research is unverified and not enabled. |
+| `benchmark`, `independent_eval` | CI/host tools, no UI workflow | Both execute against tiny authored synthetic datasets. Despite the latter filename, this is not a third-party independent benchmark. |
 
-## Tests and benchmark limits
+Complete Android feature parity is **not** claimed: advanced workflows remain
+Python library capabilities with host tests. Android runtime verification covers
+all module imports and the six exposed commands on API 35 x86_64. Physical-device,
+ARM64, older Android, 16 KB page-size, and prolonged-use behavior need separate
+runtime validation. There are no standalone Java unit tests; that Gradle task
+reports NO-SOURCE.
 
-Run the host regression suite from the repository root:
+## Integration changes
+
+The archive's build/workflow files were not allowed to undo the verified SDK
+package selection, API 35 target, lint/signature gates, or artifact verification.
+The supplied six-command bridge was adapted to close each SQLite connection,
+serialize work, isolate database paths, validate bounded inputs, preserve neural
+state atomically, and expose errors without claiming success. Java executes it on
+a background worker and avoids updating a destroyed activity.
+
+The old `observations` table migrates to `facts` in one transaction with distinct
+legacy-row provenance. A migration marker prevents duplicate migration, original
+rows are retained, and the app keeps its original files-directory database path.
+New observations with the same triple and source update that source's confidence.
+Migration does not overcome Android signing-key mismatch between CI builds.
+
+Confirmed source defects were repaired with regressions: symbolic inference now
+retains the strongest evidence and strongest path independently of insertion
+order; supervised feedback rejects non-boolean labels; corroboration rejects
+missing/mixed claims instead of pooling unrelated evidence. Other supplied module
+algorithms remain research prototypes.
+
+The Android adapter currently allows 1,000 observations, 100 rows per response,
+inference over at most 100 observations and two rounds, and neural training over
+at most 200 distinct pairs for 15 epochs per request. Existing data is retained
+when a limit is reached. These are UI operation limits, not benchmark claims.
+
+## Reproduce tests and benchmarks
 
 ```sh
 python3 -m unittest discover -s tests -v
+python3 scripts/benchmark_engine.py
 ```
 
-All eight tests passed on host Python 3.12.14 during development. They cover
-normalization and optional articles, duplicate append behavior, rejection without
-database writes, storage isolation, and persistence across two independent Python
-processes. Test databases use temporary directories and are not committed.
+`SOLRDM-build-evidence` contains `python-tests.log`, Gradle/lint evidence and
+`engine-benchmarks.json`. The APK artifact also includes the benchmark JSON.
+Symbolic and neural components are measured separately, with seeded synthetic
+data, correctness/score metrics and elapsed time. Timings are runner-specific;
+the neural toy data is not a generalization or intelligence benchmark. The supplied
+language benchmarks report synthetic split sizes and limitations separately.
 
-The Android package uses its configured Chaquopy Python runtime. Host tests do
-not prove that runtime starts, that an APK installs, or that the UI calls Python.
-Use the exact build's instrumentation report and restart-smoke log for those
-claims. Physical-device installation and ARM64 runtime behavior require separate
-verification even when an x86_64 emulator passes.
-
-Independent neural and full symbolic engine benchmarks cannot be run because
-those components are absent. Timing the regex/SQLite bridge would not measure
-their performance, and no substitute benchmark is presented as v0.7 parity.
+Use the matching successful workflow and its emulator evidence to establish what
+actually ran. A module's presence in an archive or this document is not proof of
+successful installation or full integration.

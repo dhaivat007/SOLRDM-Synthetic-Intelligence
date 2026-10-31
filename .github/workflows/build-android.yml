@@ -49,25 +49,28 @@ jobs:
         run: |
           mkdir -p evidence dist
           { java -version; gradle --version; python --version; sdkmanager --list_installed; } 2>&1 | tee evidence/environment.log
-      - name: Test Python observation bridge
+      - name: Test Python engine and Android bridge
         run: python -m unittest discover -s tests -v 2>&1 | tee evidence/python-tests.log
+      - name: Benchmark symbolic and neural components separately
+        run: python scripts/benchmark_engine.py > evidence/engine-benchmarks.json
       - name: Build signed debug APK and run Android checks
         run: gradle --no-daemon --stacktrace assembleDebug assembleDebugAndroidTest testDebugUnitTest lintDebug 2>&1 | tee evidence/gradle.log
       - name: Verify signed APK and record provenance
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk dist/SOLRDM-0.7.1-debug.apk
-          bash scripts/verify-apk.sh dist/SOLRDM-0.7.1-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/SOLRDM-0.7.2-debug.apk
+          bash scripts/verify-apk.sh dist/SOLRDM-0.7.2-debug.apk
+          cp docs/source-provenance.json evidence/engine-benchmarks.json dist/
       - name: Upload verified APK
         uses: actions/upload-artifact@v4
         with:
-          name: SOLRDM-Android-debug-APK
+          name: SOLRDM-Android-v0.7.2-debug-APK
           path: dist/
           if-no-files-found: error
           retention-days: 30
       - name: Upload instrumentation APK
         uses: actions/upload-artifact@v4
         with:
-          name: SOLRDM-Android-test-APK
+          name: SOLRDM-Android-v0.7.2-test-APK
           path: app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
           if-no-files-found: error
           retention-days: 30
@@ -99,17 +102,17 @@ jobs:
           log-accepted-android-sdk-licenses: false
       - uses: actions/download-artifact@v4
         with:
-          name: SOLRDM-Android-debug-APK
+          name: SOLRDM-Android-v0.7.2-debug-APK
           path: dist
       - uses: actions/download-artifact@v4
         with:
-          name: SOLRDM-Android-test-APK
+          name: SOLRDM-Android-v0.7.2-test-APK
           path: test-apk
       - name: Independently verify downloaded artifact
         run: |
           cd dist
           sha256sum --check SHA256SUMS
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs SOLRDM-0.7.1-debug.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs SOLRDM-0.7.2-debug.apk
       - name: Enable KVM access
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -123,7 +126,7 @@ jobs:
           target: default
           profile: pixel_2
           disable-animations: true
-          script: bash scripts/smoke-test.sh dist/SOLRDM-0.7.1-debug.apk test-apk/app-debug-androidTest.apk
+          script: bash scripts/smoke-test.sh dist/SOLRDM-0.7.2-debug.apk test-apk/app-debug-androidTest.apk
       - name: Retain emulator evidence
         if: always()
         uses: actions/upload-artifact@v4
