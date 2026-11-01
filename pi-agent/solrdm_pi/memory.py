@@ -3,7 +3,24 @@
 from datetime import datetime, timezone
 from contextlib import contextmanager
 from pathlib import Path
+import re
 import sqlite3
+import unicodedata
+
+
+_STOP_WORDS = frozenset("""about after again also and any are ask because been before being
+    between both but can could did does doing each for from had has have having how into its
+    just let like may might more most much must need nor not now only other our out please
+    same say should some such tell than that the their them then there these they this those
+    through too under very was were what when where which while who why will with would yes
+    you your yourself""".split())
+
+
+def _keywords(text):
+    """Unicode lexical words, not embeddings or a semantic language model."""
+    normalized = unicodedata.normalize("NFKC", text).casefold()
+    return [word for word in re.findall(r"[^\W_]+", normalized)
+            if 3 <= len(word) <= 64 and word not in _STOP_WORDS]
 
 
 class MemoryStore:
@@ -81,6 +98,36 @@ class MemoryStore:
                 "ORDER BY CASE status WHEN 'approved' THEN 0 ELSE 1 END,id DESC LIMIT ?",
                 (f"%{escaped}%", f"%{escaped}%", limit),
             )]
+
+    def relevant(self, query, limit=3):
+        """Retrieve approved notes by bounded keyword overlap.
+
+        At most 2,000 query characters, 32 distinct query terms, and 5,000
+        approved records are considered. Matching uses whole Unicode words of
+        3–64 characters with common English words removed. This is lexical
+        retrieval: it does not understand synonyms, infer facts, or train weights.
+        Empty/stopword-only requests never return unrelated notes.
+        """
+        limit = self._limit(limit)
+        if not isinstance(query, str) or len(query) > 2000:
+            raise ValueError("Relevance query must be text of at most 2000 characters.")
+        terms = set(list(dict.fromkeys(_keywords(query)))[:32])
+        if not terms:
+            return []
+        matches = []
+        with self._connect() as db:
+            rows = db.execute("SELECT * FROM observations WHERE status='approved' ORDER BY id DESC LIMIT ?",
+                              (min(self.MAX_RECORDS, 5000),))
+            for row in rows:
+                record = dict(row)
+                words = set(_keywords(record["text"]))
+                overlap = len(terms & words)
+                if overlap:
+                    # More distinct query terms ranks first. For equal overlap,
+                    # prefer the more focused note, then the newest record.
+                    matches.append((overlap, overlap / len(words), record["id"], record))
+        matches.sort(key=lambda item: item[:3], reverse=True)
+        return [item[3] for item in matches[:limit]]
 
     def review(self, observation_id, approved):
         observation_id = self._id(observation_id)

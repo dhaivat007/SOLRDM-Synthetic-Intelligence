@@ -4,7 +4,7 @@
   const token = document.querySelector('meta[name="solrdm-token"]').content;
   const STORAGE_KEY = 'solrdm.pi.conversations.v1';
   const MAX_ATTACHMENTS = 3, MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
-  const state = { view: 'chat', mode: 'chat', conversations: [], current: null, status: null, settings: null, models: [], catalog: [], tools: [], attachments: [], busy: false, preparing: false, jobs: new Map(), jobPollers: new Set(), polling: false };
+  const state = { view: 'chat', mode: 'chat', conversations: [], current: null, status: null, settings: null, models: [], catalog: [], tools: [], attachments: [], busy: false, preparing: false, jobs: new Map(), jobPollers: new Set(), settingsLoadVersion: 0, polling: false };
   function el(tag, className, text) { const n = document.createElement(tag); if (className) n.className = className; if (text != null) n.textContent = String(text); return n; }
   function button(text, callback, className = 'secondary') { const n = el('button', className, text); n.type = 'button'; n.addEventListener('click', callback); return n; }
   function feedback(message = '', error = false) { $('feedback').textContent = message; $('feedback').classList.toggle('error', error); $('feedback').hidden = !message; }
@@ -39,7 +39,44 @@
   function newConversation() { if (state.busy || state.preparing) return; const id = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`; state.conversations.unshift({ id, title: 'New conversation', messages: [] }); state.conversations = state.conversations.slice(0, 20); state.current = id; state.attachments = []; $('chat-input').value = ''; renderChat(); renderAttachments(); persist(); showView('chat'); }
   function renderHistory() { const parent = $('history'); parent.replaceChildren(); state.conversations.forEach(c => { const b = button(c.title, () => { if (state.busy || state.preparing) return; state.current = c.id; state.attachments = []; $('chat-input').value = ''; renderChat(); renderAttachments(); showView('chat'); }, c.id === state.current ? 'active' : ''); b.title = c.title; b.disabled = state.busy || state.preparing; parent.append(b); }); }
   function appendSources(parent, sources) { if (!Array.isArray(sources)) return; const box = el('div', 'sources'); for (const source of sources.slice(0, 20)) { const url = safeUrl(source.url); if (!url) continue; const a = el('a', '', source.title || url); a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer'; box.append(a); } if (box.childNodes.length) parent.append(box); }
-  function appendReceipts(parent, receipts) { if (!Array.isArray(receipts) || !receipts.length) return; const d = el('details', 'receipts'); d.append(el('summary', '', `${receipts.length} tool result${receipts.length === 1 ? '' : 's'} · inspect actions and assumptions`)); d.append(el('pre', '', JSON.stringify(receipts, null, 2))); parent.append(d); }
+  function appendSimulation(parent, receipt) {
+    if (!receipt || receipt.status !== 'completed' || !['simulate_projectile', 'simulate_oscillator'].includes(receipt.tool)) return;
+    const projectile = receipt.tool === 'simulate_projectile';
+    const points = (Array.isArray(receipt.data?.points) ? receipt.data.points : []).slice(0, 600)
+      .map(p => ({ x: projectile ? p.x : p.t, y: projectile ? p.y : p.x }))
+      .filter(p => Number.isFinite(p.x) && Number.isFinite(p.y));
+    if (points.length < 2) return;
+    const figure = el('figure', 'simulation-chart'), canvas = el('canvas');
+    canvas.width = 720; canvas.height = 340;
+    const title = projectile ? 'Projectile trajectory' : 'Oscillator displacement';
+    const xLabel = projectile ? 'Horizontal distance (m)' : 'Time (s)';
+    const yLabel = projectile ? 'Height (m)' : 'Displacement (m)';
+    const format = n => Number(n.toPrecision(3)).toString();
+    let xmin = Math.min(0, ...points.map(p => p.x)), xmax = Math.max(...points.map(p => p.x));
+    let ymin = Math.min(0, ...points.map(p => p.y)), ymax = Math.max(0, ...points.map(p => p.y));
+    if (xmax === xmin) xmax = xmin + 1;
+    if (ymax === ymin) ymax = ymin + 1;
+    const summary = `${title}. ${xLabel}: ${format(xmin)} to ${format(xmax)}. ${yLabel}: ${format(ymin)} to ${format(ymax)}. ${points.length} calculated samples. The full numerical data is available below.`;
+    canvas.setAttribute('role', 'img'); canvas.setAttribute('aria-label', summary); canvas.textContent = summary;
+    figure.append(canvas, el('figcaption', '', `${summary} This is an idealized simulation.`)); parent.append(figure);
+    const ctx = canvas.getContext('2d'); if (!ctx) return;
+    const left = 80, top = 32, width = 610, height = 245;
+    const x = n => left + (n - xmin) / (xmax - xmin) * width;
+    const y = n => top + height - (n - ymin) / (ymax - ymin) * height;
+    ctx.fillStyle = '#f7f9f3'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.font = '13px system-ui'; ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+      const px = left + width * i / 4, py = top + height * i / 4;
+      ctx.strokeStyle = '#dce5d5'; ctx.beginPath(); ctx.moveTo(px, top); ctx.lineTo(px, top + height); ctx.moveTo(left, py); ctx.lineTo(left + width, py); ctx.stroke();
+      ctx.fillStyle = '#647c58'; ctx.textAlign = 'center'; ctx.fillText(format(xmin + (xmax - xmin) * i / 4), px, top + height + 22);
+      ctx.textAlign = 'right'; ctx.fillText(format(ymax - (ymax - ymin) * i / 4), left - 10, py + 4);
+    }
+    ctx.fillStyle = '#3f5f35'; ctx.textAlign = 'left'; ctx.fillText(yLabel, left, 17);
+    ctx.textAlign = 'center'; ctx.fillText(xLabel, left + width / 2, 327);
+    ctx.strokeStyle = '#456f42'; ctx.lineWidth = 2.5; ctx.beginPath();
+    points.forEach((p, i) => { if (i === 0) ctx.moveTo(x(p.x), y(p.y)); else ctx.lineTo(x(p.x), y(p.y)); }); ctx.stroke();
+  }
+  function appendReceipts(parent, receipts) { if (!Array.isArray(receipts) || !receipts.length) return; receipts.slice(0, 8).forEach(receipt => appendSimulation(parent, receipt)); const d = el('details', 'receipts'); d.append(el('summary', '', `${receipts.length} tool result${receipts.length === 1 ? '' : 's'} · inspect actions and assumptions`)); d.append(el('pre', '', JSON.stringify(receipts, null, 2))); parent.append(d); }
   function renderChat() {
     const messages = conversation()?.messages || []; $('welcome').hidden = messages.length > 0; $('messages').replaceChildren();
     for (const m of messages) { const row = el('article', `message ${m.role}`), body = el('div', 'message-body'); row.append(el('div', 'message-avatar', m.role === 'user' ? 'YOU' : 'S↗')); body.append(el('div', 'message-role', m.role === 'user' ? 'You' : `SOLRDM${m.model ? ` · ${m.model}` : ''}`), el('div', 'message-text', m.content)); if (Array.isArray(m.attachments) && m.attachments.length) body.append(el('p', 'muted', `Attachments: ${m.attachments.map(a => a.name).join(', ')}. Attach again for another review; original files are not saved in history.`)); if (m.incomplete) body.append(el('div', 'incomplete', 'Incomplete response — inspect the tool results and any reported errors.')); appendSources(body, m.sources); appendReceipts(body, m.receipts); if (m.role === 'assistant' && 'speechSynthesis' in window) { const controls = el('div', 'message-controls'); controls.append(button('Read aloud', () => { speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance(m.content)); }, 'text-button')); body.append(controls); } row.append(body); $('messages').append(row); }
@@ -117,7 +154,31 @@
     }
     renderJobs();
   }
-  async function loadSettings() { const s = await api('/api/settings'); state.settings = s; $('runtime-path').value = s.runtime_path || ''; $('provider-url').value = s.provider_url || 'https://api.openai.com/v1'; $('provider-model').value = s.provider_model || ''; $('provider-key').value = ''; $('preferred-backend').value = s.preferred_backend || 'local'; $('provider-vision').checked = s.provider_vision === true; $('clear-provider-key').checked = false; $('provider-key-status').textContent = s.provider_key_set || s.provider_configured || s.has_provider_key ? 'An API key is saved. Leave this field blank to keep it.' : 'No API key is saved.'; }
+  async function loadSettings() {
+    // Prevent a delayed GET from overwriting edits or a newer settings request.
+    const version = ++state.settingsLoadVersion;
+    const controls = [...$('settings-form').querySelectorAll('input,select,button')];
+    controls.forEach(control => control.disabled = true);
+    $('settings-form').setAttribute('aria-busy', 'true');
+    try {
+      const s = await api('/api/settings');
+      if (version !== state.settingsLoadVersion) return;
+      state.settings = s;
+      $('runtime-path').value = s.runtime_path || '';
+      $('provider-url').value = s.provider_url || 'https://api.openai.com/v1';
+      $('provider-model').value = s.provider_model || '';
+      $('provider-key').value = '';
+      $('preferred-backend').value = s.preferred_backend || 'local';
+      $('provider-vision').checked = s.provider_vision === true;
+      $('clear-provider-key').checked = false;
+      $('provider-key-status').textContent = s.provider_key_set || s.provider_configured || s.has_provider_key ? 'An API key is saved. Leave this field blank to keep it.' : 'No API key is saved.';
+    } finally {
+      if (version === state.settingsLoadVersion) {
+        controls.forEach(control => control.disabled = false);
+        $('settings-form').setAttribute('aria-busy', 'false');
+      }
+    }
+  }
   async function saveSettings(event) { event.preventDefault(); await formTask(event.currentTarget, async () => { const s = { runtime_path: $('runtime-path').value.trim(), provider_url: $('provider-url').value.trim(), provider_model: $('provider-model').value.trim(), preferred_backend: $('preferred-backend').value, provider_vision: $('provider-vision').checked, clear_provider_key: $('clear-provider-key').checked }; if ($('provider-key').value) s.provider_key = $('provider-key').value; await post('/api/settings', s); $('provider-key').value = ''; await loadSettings(); await refreshStatus(); feedback('Settings saved. Send a message to verify the selected model connection.'); }); }
   async function refreshDiagnostics() { const result = await api('/api/diagnostics'); $('diagnostics').textContent = JSON.stringify(result, null, 2); }
   function engineFields() { const command = $('engine-command').value; const examples = { status: '', interpret: 'The Moon is part of the Solar System.', observe: '{"subject":"Moon","relation":"part_of","object":"Solar System","confidence":0.8}', query: 'Moon', discover: '', neural_train: '' }; const help = { status: 'Inspect engine availability and integration limits.', interpret: 'Parses a limited sentence structure into candidate facts. This does not save or verify them.', observe: 'Stores the structured fact as a user assertion, not independently verified evidence. The retained adapter uses its original android:user provenance label.', query: 'Enter an entity name, or leave blank to query stored facts. Inference is bounded.', discover: 'Generates unverified hypotheses from stored facts. No payload is needed.', neural_train: 'Trains the tiny experimental scorer on stored pairs. This changes its saved parameters, not the pretrained conversational model.' }; $('engine-payload').value = examples[command]; $('engine-help').textContent = help[command]; }
@@ -126,7 +187,7 @@
   const toolLabels = { calculate: 'Calculate an expression', describe_statistics: 'Descriptive statistics', simulate_projectile: 'Projectile motion', simulate_oscillator: 'Damped oscillator', research_papers: 'Find scientific papers', search_encyclopedia: 'Search Wikipedia', remember_observation: 'Save an observation for review', recall_observations: 'Recall reviewed observations' };
   async function loadTools() { const result = await api('/api/tools'); state.tools = (result.tools || []).map(t => t.function || t); $('tool-select').replaceChildren(); for (const t of state.tools) { const option = el('option', '', toolLabels[t.name] || t.name); option.value = t.name; $('tool-select').append(option); } renderToolFields(); }
   function renderToolFields() { const t = state.tools.find(t => t.name === $('tool-select').value); $('tool-fields').replaceChildren(); if (!t) { $('run-tool').disabled = true; return; } $('run-tool').disabled = false; $('tool-description').textContent = t.description || ''; const props = t.parameters?.properties || {}; for (const [name, p] of Object.entries(props)) { const label = el('label', '', name.replaceAll('_', ' ')); let field; if (p.type === 'array' || p.type === 'object') { field = el('textarea'); field.rows = 3; field.value = JSON.stringify(toolDefaults[t.name]?.[name] ?? (p.type === 'array' ? [] : {})); } else { field = el('input'); field.type = p.type === 'number' || p.type === 'integer' ? 'number' : p.type === 'boolean' ? 'checkbox' : 'text'; if (field.type === 'number') { field.step = p.type === 'integer' ? '1' : 'any'; if (p.minimum !== undefined) field.min = p.minimum; if (p.maximum !== undefined) field.max = p.maximum; } if (field.type === 'checkbox') field.checked = toolDefaults[t.name]?.[name] === true; else field.value = toolDefaults[t.name]?.[name] ?? ''; } field.name = name; field.dataset.type = p.type; field.required = (t.parameters?.required || []).includes(name) && p.type !== 'boolean' && name !== 'query'; label.append(field); if (p.description) label.append(el('span', 'field-help', p.description)); $('tool-fields').append(label); } }
-  async function runTool(event) { event.preventDefault(); await formTask(event.currentTarget, async () => { const args = {}; for (const input of $('tool-fields').querySelectorAll('input,textarea,select')) { const type = input.dataset.type; if (type === 'array' || type === 'object') { try { args[input.name] = JSON.parse(input.value); } catch { throw new Error(`${input.name} must be valid JSON, for example [1, 2, 3].`); } } else if (type === 'boolean') args[input.name] = input.checked; else if (type === 'number' || type === 'integer') { args[input.name] = Number(input.value); if (!Number.isFinite(args[input.name])) throw new Error(`${input.name} must be a finite number.`); } else args[input.name] = input.value; } $('tool-result').replaceChildren(el('p', 'muted', 'Running tool…')); const result = await post('/api/tools', { name: $('tool-select').value, args }); const receipt = result.receipt || result; $('tool-result').replaceChildren(el('p', 'tool-result-summary', receipt.summary || receipt.status)); if (Array.isArray(receipt.assumptions)) for (const assumption of receipt.assumptions) $('tool-result').append(el('p', 'muted', assumption)); appendSources($('tool-result'), receipt.sources); $('tool-result').append(el('pre', '', JSON.stringify(receipt.data ?? receipt, null, 2))); feedback('Tool finished. Inspect the result and assumptions.'); }); }
+  async function runTool(event) { event.preventDefault(); await formTask(event.currentTarget, async () => { const args = {}; for (const input of $('tool-fields').querySelectorAll('input,textarea,select')) { const type = input.dataset.type; if (type === 'array' || type === 'object') { try { args[input.name] = JSON.parse(input.value); } catch { throw new Error(`${input.name} must be valid JSON, for example [1, 2, 3].`); } } else if (type === 'boolean') args[input.name] = input.checked; else if (type === 'number' || type === 'integer') { args[input.name] = Number(input.value); if (!Number.isFinite(args[input.name])) throw new Error(`${input.name} must be a finite number.`); } else args[input.name] = input.value; } $('tool-result').replaceChildren(el('p', 'muted', 'Running tool…')); const result = await post('/api/tools', { name: $('tool-select').value, args }); const receipt = result.receipt || result; $('tool-result').replaceChildren(el('p', 'tool-result-summary', receipt.summary || receipt.status)); if (Array.isArray(receipt.assumptions)) for (const assumption of receipt.assumptions) $('tool-result').append(el('p', 'muted', assumption)); appendSources($('tool-result'), receipt.sources); appendSimulation($('tool-result'), receipt); $('tool-result').append(el('pre', '', JSON.stringify(receipt.data ?? receipt, null, 2))); feedback('Tool finished. Inspect the result and assumptions.'); }); }
   async function refreshMemory() { const data = await api('/api/memory'); const items = data.items || data.observations || []; $('memory-list').replaceChildren(); if (!items.length) { $('memory-list').append(el('p', 'empty', 'No observations saved yet. Add one above or ask the agent to remember something for review.')); return; } for (const m of items) { const row = el('article', 'memory-item'); const approved = m.approved === true || m.status === 'approved'; row.append(el('span', 'tag', approved ? 'Reviewed · approved' : m.status === 'rejected' ? 'Rejected' : 'Awaiting review'), el('p', '', m.text || m.content || ''), el('small', '', `Source: ${m.source || 'not recorded'}`)); if (!approved) row.append(button('Approve for recall', async () => { try { await post('/api/memory/review', { id: m.id, approved: true }); await refreshMemory(); feedback('Observation approved for recall. Approval is your review decision, not independent proof.'); } catch (e) { feedback(e.message, true); } })); if (m.status !== 'rejected') row.append(button(approved ? 'Revoke approval' : 'Reject', async () => { try { await post('/api/memory/review', { id: m.id, approved: false }); await refreshMemory(); } catch (e) { feedback(e.message, true); } }, 'text-button')); row.append(button('Delete', async () => { if (!confirm('Delete this saved observation? This cannot be undone.')) return; try { await post('/api/memory/delete', { id: m.id }); await refreshMemory(); } catch (e) { feedback(e.message, true); } }, 'text-button')); $('memory-list').append(row); } }
   document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => showView(b.dataset.view)));
   document.querySelectorAll('[data-open-view]').forEach(b => b.addEventListener('click', () => showView(b.dataset.openView)));

@@ -39,6 +39,66 @@ class MemoryTests(unittest.TestCase):
         self.assertEqual(self.memory.search("' OR 1=1 --"), [])
         self.assertEqual(self.memory.search("_"), [])
 
+    def test_relevant_recalls_approved_fact_from_different_question_wording(self):
+        record = self.memory.add("My dog is named Max", "User conversation", "user")
+        reviewed = self.memory.review(record["id"], True)
+        self.assertEqual(self.memory.search("What is my dog named?"), [])
+        self.assertEqual(self.memory.relevant("What is my dog named?"), [reviewed])
+        # Preserve the original provenance and review status, not a generated
+        # assertion that the memory has been independently verified.
+        found = self.memory.relevant("Can you tell me about my dog?")[0]
+        self.assertEqual(found["source"], "User conversation")
+        self.assertEqual(found["origin"], "user")
+        self.assertEqual(found["status"], "approved")
+
+    def test_relevant_excludes_unreviewed_and_rejected_records(self):
+        approved = self.memory.add("Dog named Max")
+        self.memory.review(approved["id"], True)
+        self.memory.add("Dog named Rex", origin="model")
+        rejected = self.memory.add("Dog named Spot", origin="model")
+        self.memory.review(rejected["id"], False)
+        self.assertEqual([r["id"] for r in self.memory.relevant("What is my dog named?")], [approved["id"]])
+        self.memory.review(approved["id"], False)
+        self.assertEqual(self.memory.relevant("dog"), [])
+
+    def test_relevant_ranks_distinct_overlap_and_does_not_match_substrings(self):
+        first = self.memory.add("The solar battery needs maintenance")
+        second = self.memory.add("Solar panels collect sunlight")
+        third = self.memory.add("Battery compartment location")
+        dogma = self.memory.add("Dogma is a belief")
+        for row in (first, second, third, dogma):
+            self.memory.review(row["id"], True)
+        found = self.memory.relevant("What about the solar battery?", limit=2)
+        self.assertEqual(found[0]["id"], first["id"])
+        self.assertEqual(len(found), 2)
+        self.assertEqual(self.memory.relevant("dog"), [])
+        # Repeating one query term does not increase its rank.
+        self.assertEqual(self.memory.relevant("solar solar solar battery")[0]["id"], first["id"])
+
+    def test_relevant_normalizes_unicode_case_and_accents(self):
+        first = self.memory.add("My favourite café is nearby")
+        second = self.memory.add("Die Straße ist lang")
+        self.memory.review(first["id"], True)
+        self.memory.review(second["id"], True)
+        self.assertEqual(self.memory.relevant("Which CAFE\u0301 is nearby?")[0]["id"], first["id"])
+        self.assertEqual(self.memory.relevant("STRASSE")[0]["id"], second["id"])
+
+    def test_relevant_empty_queries_limits_and_token_cap(self):
+        record = self.memory.add("Needle useful note")
+        self.memory.review(record["id"], True)
+        for query in ("", "   ", "What can you tell me about it?", "an of to", "x" * 65):
+            with self.subTest(query=query):
+                self.assertEqual(self.memory.relevant(query), [])
+        with self.assertRaises(ValueError):
+            self.memory.relevant("x" * 2001)
+        with self.assertRaises(ValueError):
+            self.memory.relevant(None)
+        with self.assertRaises(ValueError):
+            self.memory.relevant("needle", limit=True)
+        terms = [f"term{i}" for i in range(32)]
+        self.assertEqual(self.memory.relevant(" ".join(terms + ["needle"])), [])
+        self.assertEqual(self.memory.relevant("needle " + " ".join(terms))[0]["id"], record["id"])
+
     def test_bounded_memory_and_deletion(self):
         self.memory.MAX_RECORDS = 2
         first = self.memory.add("first")

@@ -226,7 +226,7 @@ class Agent:
             state = self.models.status()
             if not state.get("ready"):
                 raise AgentError("Download or attach a model in Models, then click Load. Chat becomes available once its health check succeeds.")
-            model_name = state.get("model_id", "local")
+            model_name = state.get("model_name") or state.get("model_id", "local")
         extra, images = attachment_content(request.get("attachments", []), use_provider and settings.get("provider_vision", False))
         history = request.get("messages", [])
         if not isinstance(history, list) or len(history) > 80:
@@ -263,7 +263,7 @@ class Agent:
         if actionable:
             system += ('To request one tool, output ONLY JSON {"tool":"name","arguments":{...}}. '
                        'Do not invent tool results. Available tools:\n' + json.dumps(definitions, separators=(",", ":")))
-        relevant = self.memory.search(text[:200], limit=3) if text.strip() else []
+        relevant = self.memory.relevant(text[:2000], limit=3) if text.strip() else []
         approved = [row for row in relevant if row.get("approved") or row.get("status") == "approved"]
         if approved:
             system += "\nUser-reviewed notes (not independent evidence): " + json.dumps(approved, ensure_ascii=False)[:1800]

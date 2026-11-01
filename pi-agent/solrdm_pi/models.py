@@ -423,6 +423,7 @@ class ModelManager:
             if self._process and self._process.poll() is not None and self._state in ("loading", "ready"):
                 self._state, self._error = "error", "The model runtime exited. Check available memory and model compatibility."
             return {"state": self._state, "ready": self._state == "ready", "model_id": self._active,
+                    "model_name": next((m["name"] for m in self._models if m["id"] == self._active), None),
                     "runtime_available": bool(self.runtime_path), "error": self._error,
                     "context_tokens": 4096, "threads": 4, "local_only": True}
 

@@ -61,9 +61,10 @@ if [[ ! -x "$source_dir/runtime/bin/llama-server" ]]; then
 fi
 "$source_dir/runtime/bin/llama-server" --version
 
-python3 - "$source_dir" "$install_dir" "$desktop_dir" <<'PY'
-import fcntl, os, pathlib, shutil, signal, sys, tempfile, time
-source, destination, desktop = [pathlib.Path(p).expanduser().resolve() for p in sys.argv[1:]]
+python3 - "$source_dir" "$install_dir" "$desktop_dir" "$build_runtime" <<'PY'
+import fcntl, hashlib, json, os, pathlib, shutil, signal, sys, tempfile, time
+source, destination, desktop = [pathlib.Path(p).expanduser().resolve() for p in sys.argv[1:4]]
+runtime_rebuilt = sys.argv[4] == '1'
 if destination == source or source.is_relative_to(destination) or destination.is_relative_to(source):
     raise SystemExit('Install into a separate directory, outside the extracted package.')
 destination.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -114,6 +115,18 @@ try:
         shutil.copy2(provenance, staging / 'source-provenance.json')
     (staging / 'launch.sh').chmod(0o755)
     (staging / 'runtime/bin/llama-server').chmod(0o755)
+    if runtime_rebuilt:
+        info_path = staging / 'BUILD-INFO.json'
+        info = json.loads(info_path.read_text()) if info_path.is_file() else {'application': 'SOLRDM Pi Agent', 'version': '0.9.0', 'build_url': None}
+        info.update(runtime_rebuilt_locally=True, llama_cpp_commit='8642541b255bfb5dc39cd351a178be09013a55d6')
+        info_path.write_text(json.dumps(info, indent=2) + '\n')
+        manifest = []
+        for file in sorted(staging.rglob('*')):
+            if file.is_file() and file.name != 'MANIFEST.sha256':
+                with file.open('rb') as stream:
+                    digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+                manifest.append(digest + '  ' + str(file.relative_to(staging)) + '\n')
+        (staging / 'MANIFEST.sha256').write_text(''.join(manifest))
     old = destination / 'app.previous'
     current = destination / 'app'
     if old.exists():

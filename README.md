@@ -1,5 +1,14 @@
 # SOLRDM — Synthetic Observational Learning, Reasoning & Discovery Model
 
+The new [Raspberry Pi 5 application](pi-agent/README.md) targets 8 GB devices running
+64-bit Raspberry Pi OS. It provides a local GGUF model library, pretrained language
+and mathematics model downloads, chat, scientific tools, source-linked research,
+and reviewed observation memory. Its [build workflow](.github/workflows/pi-agent.yml)
+verifies native ARM64 inference and an installed application's HTTP chat before
+publishing a preview. See the exact run's evidence; physical Pi testing is separate.
+The Pi app uses pretrained models as explicitly requested. The description below
+refers to the earlier Android observation engine.
+
 Android 0.7.3 embeds the 16 Python modules from the supplied SOLRDM v0.7 source
 bundle through Chaquopy. It uses no pretrained LLM. The Android UI supports six
 operations: structured observations, limited English interpretation, memory queries

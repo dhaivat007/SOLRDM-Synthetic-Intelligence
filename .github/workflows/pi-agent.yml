@@ -62,6 +62,7 @@ jobs:
           retention-days: 30
 
   arm64:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 60
     steps:
@@ -70,7 +71,7 @@ jobs:
         run: mkdir -p pi-output pi-evidence pi-agent/runtime/bin
       - name: Reuse pinned ARM64 runtime
         id: runtime-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: pi-agent/runtime
           key: llama-8642541b255bfb5dc39cd351a178be09013a55d6-bookworm-arm64-static-cxx-v1
@@ -105,17 +106,16 @@ jobs:
           pi-agent/runtime/bin/llama-server --version 2>&1 | tee pi-evidence/runtime-version.txt
           ldd pi-agent/runtime/bin/llama-server | tee pi-evidence/runtime-libraries.txt
           sha256sum pi-agent/runtime/bin/llama-server > pi-evidence/runtime-SHA256.txt
+      - name: Save verified runtime independently of later model tests
+        if: steps.runtime-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: pi-agent/runtime
+          key: llama-8642541b255bfb5dc39cd351a178be09013a55d6-bookworm-arm64-static-cxx-v1
       - name: Download complete pinned language and mathematics model weights
         run: |
           python3 pi-agent/scripts/smoke_runtime.py --model-dir pi-output --runtime pi-agent/runtime/bin/llama-server --output pi-output --manifest-only
-          python3 - <<'PY'
-          import json, pathlib, subprocess
-          output = pathlib.Path('pi-output')
-          for model in json.loads((output / 'MODEL-MANIFEST.json').read_text()):
-              subprocess.run(['curl', '--fail', '--location', '--retry', '3', '--max-time', '1800',
-                              '--proto', '=https', '--proto-redir', '=https',
-                              '--output', str(output / model['file']), model['url']], check=True)
-          PY
+          python3 pi-agent/scripts/download_models.py --output pi-output --evidence pi-evidence/download-evidence.json
           curl --fail --location --retry 3 --proto '=https' --proto-redir '=https' \
             'https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/raw/dd26da440ef0330c47919d1ecae0966d24022222/LICENSE' \
             --output pi-output/LICENSE-Qwen-language.txt

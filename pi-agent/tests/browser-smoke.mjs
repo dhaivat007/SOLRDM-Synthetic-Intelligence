@@ -94,7 +94,10 @@ try {
   await page.waitForFunction(() => document.querySelector('#tool-result pre')?.textContent.includes('"flightTime"'));
   const projectile = JSON.parse(await page.locator('#tool-result pre').innerText());
   assert.ok(Math.abs(projectile.range - 40.7747196738) < 0.000001);
-  record('Projectile simulation runs real equations and displays assumptions');
+  assert.equal(await page.locator('#tool-result canvas[role="img"]').count(), 1);
+  assert.match(await page.locator('#tool-result canvas').getAttribute('aria-label'), /Horizontal distance \(m\).*Height \(m\)/);
+  await page.screenshot({ path: join(evidence, 'desktop-projectile-simulation.png'), fullPage: true });
+  record('Projectile simulation runs real equations and displays an accessible plot with units and assumptions');
   await page.locator('#engine-form').evaluate(n => n.closest('details').open = true);
   await page.locator('#engine-form button').click();
   await page.waitForFunction(() => document.querySelector('#engine-result').textContent.includes('module_count'));
@@ -111,7 +114,22 @@ try {
   await page.waitForFunction(() => document.querySelector('.memory-item')?.textContent.includes('Reviewed · approved'));
   assert.equal(await page.evaluate(() => window.xss), undefined);
   record('Observations require explicit review and untrusted markup is rendered as text');
+  let releaseSettings, settingsRequested;
+  const settingsHold = new Promise(resolve => { releaseSettings = resolve; });
+  const settingsSeen = new Promise(resolve => { settingsRequested = resolve; });
+  const holdSettings = async route => {
+    if (route.request().method() === 'GET') { settingsRequested(); await settingsHold; }
+    await route.continue();
+  };
+  await page.route('**/api/settings', holdSettings);
   await selectView(page, 'settings');
+  await settingsSeen;
+  assert.equal(await page.locator('#preferred-backend').isDisabled(), true);
+  assert.equal(await page.locator('#provider-model').isDisabled(), true);
+  releaseSettings();
+  await page.waitForFunction(() => document.querySelector('#settings-form').getAttribute('aria-busy') === 'false');
+  await page.unroute('**/api/settings', holdSettings);
+  record('Settings remain disabled during a delayed load so a response cannot overwrite edits');
   await page.locator('#preferred-backend').selectOption('provider');
   await page.locator('#provider-url').fill('https://example.com/v1');
   await page.locator('#provider-model').fill('browser-mocked-model');
@@ -123,6 +141,9 @@ try {
   await page.reload(); await selectView(page, 'settings');
   await page.waitForFunction(() => document.querySelector('#provider-key-status').textContent.includes('An API key is saved'));
   assert.equal(await page.locator('#provider-key').inputValue(), '');
+  assert.equal(await page.locator('#preferred-backend').inputValue(), 'provider');
+  assert.equal(await page.locator('#provider-model').inputValue(), 'browser-mocked-model');
+  await page.waitForFunction(() => document.querySelector('#status-button').textContent.includes('Online · browser-mocked-model'));
   record('Provider settings persist on the service without exposing the key in browser storage or responses');
   let failChat = true;
   await page.route('**/api/chat', async route => {
@@ -164,7 +185,8 @@ try {
   await writeFile(join(evidence, 'browser-results.json'), JSON.stringify({ checks, pageErrors, browserConsoleErrors, mockedChatRequests, realModelInferenceCalls: 0, fixture: 'GGUF container upload only; not model weights', notes: 'Actual ARM64 model inference is verified by the separate smoke_runtime.py workflow step.' }, null, 2));
   console.log(`${checks.length} browser checks passed; ${mockedChatRequests} mocked chat requests; zero live model inference calls in this browser suite.`);
 } catch (error) {
-  await writeFile(join(evidence, 'browser-failure.json'), JSON.stringify({ error: error.stack, checks, pageErrors, browserConsoleErrors }, null, 2));
+  const uiState = activePage ? await activePage.evaluate(() => ({ status: document.querySelector('#status-button')?.textContent, feedback: document.querySelector('#feedback')?.textContent, selectedBackend: document.querySelector('#preferred-backend')?.value, settingsBusy: document.querySelector('#settings-form')?.getAttribute('aria-busy'), sendDisabled: document.querySelector('#send-button')?.disabled })).catch(() => null) : null;
+  await writeFile(join(evidence, 'browser-failure.json'), JSON.stringify({ error: error.stack, checks, pageErrors, browserConsoleErrors, mockedChatRequests, uiState }, null, 2));
   if (activePage) await activePage.screenshot({ path: join(evidence, 'browser-failure.png'), fullPage: true }).catch(() => {});
   throw error;
 } finally {
