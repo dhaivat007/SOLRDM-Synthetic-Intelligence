@@ -20,10 +20,17 @@ provenance = json.loads(Path('docs/source-provenance.json').read_text())
 for source in provenance['source_files']:
     assert hashlib.sha256(Path(source['path']).read_bytes()).hexdigest() == source['integrated_sha256'], source['path']
 badging = (apk.parent / 'apk-badging.txt').read_text()
-assert "package: name='org.solrdm.app.debug' versionCode='10' versionName='0.7.3'" in badging, badging
+assert "package: name='org.solrdm.agent.debug' versionCode='11' versionName='0.8.0'" in badging, badging
 assert "sdkVersion:'26'" in badging, badging
 assert "targetSdkVersion:'35'" in badging, badging
 with zipfile.ZipFile(apk) as archive:
+    asset_hashes = {}
+    for name in ['index.html', 'style.css', 'app.js', 'android-adapter.js']:
+        packaged = archive.read('assets/agent/' + name)
+        assert packaged == Path('app/src/main/assets/agent', name).read_bytes(), name
+        asset_hashes[name] = hashlib.sha256(packaged).hexdigest()
+    assert b'SolrdmAndroid' in archive.read('assets/agent/app.js')
+    assert b'modelConfigured' in archive.read('assets/agent/android-adapter.js')
     abis = sorted({p.split('/')[1] for p in archive.namelist() if p.startswith('lib/') and p.endswith('.so')})
     with zipfile.ZipFile(io.BytesIO(archive.read('assets/chaquopy/app.imy'))) as python_archive:
         packaged_modules = sorted(p for p in python_archive.namelist() if p.startswith('solrdm/') and p.endswith('.pyc'))
@@ -36,12 +43,15 @@ sha256 = hashlib.sha256(apk.read_bytes()).hexdigest()
 (apk.parent / 'SHA256SUMS').write_text(f'{sha256}  {apk.name}\n')
 run_url = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}" if 'GITHUB_RUN_ID' in os.environ else None
 metadata = dict(apk=apk.name, sha256=sha256, size_bytes=apk.stat().st_size,
-                package='org.solrdm.app.debug', version_name='0.7.3', version_code=10,
+                package='org.solrdm.agent.debug', version_name='0.8.0', version_code=11,
                 min_sdk=26, target_sdk=35, abis=abis, signing='development debug certificate',
                 commit=os.environ.get('GITHUB_SHA'), build_url=run_url,
                 persistent_signing_configured=bool(os.environ.get('SOLRDM_DEBUG_KEYSTORE')),
-                installation='Separate SOLRDM Debug package; does not replace org.solrdm.app or share its private data',
+                installation='Separate SOLRDM Agent package; does not replace org.solrdm.app or org.solrdm.app.debug or share their private data',
                 packaged_engine_modules=packaged_modules,
+                bundled_agent_assets=asset_hashes,
+                conversation_model_configured=False,
+                launcher='SOLRDM Agent: bundled offline workspace; Python engine available from native controls',
                 engine='supplied v0.7 bundle: 16 modules; six Android commands; incomplete UI parity',
                 source_archive_sha256='03fe799e305671542961d7cb689da9d18c9fd166fac88a07815f1632d9329e8c')
 (apk.parent / 'build-info.json').write_text(json.dumps(metadata, indent=2) + '\n')

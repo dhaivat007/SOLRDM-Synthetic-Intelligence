@@ -24,9 +24,9 @@ public class BridgeSmokeTest extends InstrumentationTestCase {
     @Override protected void setUp() throws Exception {
         super.setUp();
         assertEquals("Tests must target the separately installed debug app",
-                "org.solrdm.app.debug", context().getPackageName());
+                "org.solrdm.agent.debug", context().getPackageName());
         assertEquals("The instrumentation APK must use the matching debug ID",
-                "org.solrdm.app.debug.test", getInstrumentation().getContext().getPackageName());
+                "org.solrdm.agent.debug.test", getInstrumentation().getContext().getPackageName());
     }
 
     private Context context() {
