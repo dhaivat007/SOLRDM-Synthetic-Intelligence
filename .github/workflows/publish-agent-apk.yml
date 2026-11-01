@@ -1,0 +1,98 @@
+name: Publish verified SOLRDM APK download
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/apk-download-link]
+    paths: [.github/workflows/publish-agent-apk.yml]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Download the existing verified APK without rebuilding
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: 41258105478
+          name: SOLRDM-Agent-Android-v0.8.0-debug-APK
+          path: verified
+      - name: Verify original file identity
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, json
+          root = Path('verified')
+          apk = root / 'SOLRDM-Agent-0.8.0-debug.apk'
+          expected = 'a4784167b2ca2ed34d6e8e56175ee70e67b9949f42289e5f0720de02e9a2b8b8'
+          assert apk.stat().st_size == 34488768
+          assert hashlib.sha256(apk.read_bytes()).hexdigest() == expected
+          info = json.loads((root / 'build-info.json').read_text())
+          assert info['sha256'] == expected
+          assert info['commit'] == '7b57b2d47b78d86617651c862183cadb609ef83d'
+          assert info['package'] == 'org.solrdm.agent.debug'
+          assert info['conversation_model_configured'] is False
+          assert expected in (root / 'SHA256SUMS').read_text()
+          signature = (root / 'signature.txt').read_text()
+          assert 'Verified using v2 scheme (APK Signature Scheme v2): true' in signature
+          assert '502e36e0b48d3ab44a8610ed4a0171c9c7353a36cae67b4f4a9690556f9f76ae' in signature
+          print('Verified original APK bytes, checksum and recorded signing certificate.')
+          PY
+      - name: Publish a public prerelease download
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=solrdm-agent-v0.8.0-debug
+          cat > release-notes.txt <<'NOTES'
+          Signed debug preview of SOLRDM Agent 0.8.0 for Android 8 or newer (ARM64 and x86_64).
+
+          Download SOLRDM-Agent-0.8.0-debug.apk below, then open that APK on Android. It uses org.solrdm.agent.debug and installs separately from the earlier SOLRDM applications.
+
+          Offline scientific tools and the separate native Python engine are available. AI chat and image/video/document understanding are NOT connected yet. This is not a fully integrated general intelligence agent. File-picker/export interactions and live research/video processing remain device-unverified. Persistent signing is not configured; later updates require the same signing key.
+
+          The existing APK is published unchanged: no rebuild and no new signing key. Its signature, SHA-256, Android35 emulator installation, native engine operations, offline workbench and persistence tests passed. The user's physical phone has not been tested.
+
+          Original build: https://github.com/dhaivat007/SOLRDM-Synthetic-Intelligence/actions/runs/41258105478
+          APK SHA-256: a4784167b2ca2ed34d6e8e56175ee70e67b9949f42289e5f0720de02e9a2b8b8
+          NOTES
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo 'Existing release found; its assets will be checked without replacement.'
+          else
+            gh release create "$tag" \
+              verified/SOLRDM-Agent-0.8.0-debug.apk verified/SHA256SUMS verified/signature.txt verified/build-info.json \
+              --repo "$GITHUB_REPOSITORY" \
+              --target 7b57b2d47b78d86617651c862183cadb609ef83d \
+              --title 'SOLRDM Agent 0.8.0 — debug preview' \
+              --notes-file release-notes.txt --prerelease --latest=false
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" > release.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          release = json.loads(Path('release.json').read_text())
+          assert not release['draft'] and release['prerelease']
+          apk = next(a for a in release['assets'] if a['name'] == 'SOLRDM-Agent-0.8.0-debug.apk')
+          assert apk['state'] == 'uploaded' and apk['size'] == 34488768
+          Path('download-url.txt').write_text(apk['browser_download_url'])
+          print(release['html_url'])
+          print(apk['browser_download_url'])
+          PY
+      - name: Verify the public download without authentication
+        shell: bash
+        run: |
+          asset_url=$(cat download-url.txt)
+          curl --disable --fail --location --retry 5 --retry-delay 2 --retry-all-errors --max-time 90 \
+            --output public-download.apk "$asset_url"
+          python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+          assert hashlib.sha256(Path('public-download.apk').read_bytes()).hexdigest() == 'a4784167b2ca2ed34d6e8e56175ee70e67b9949f42289e5f0720de02e9a2b8b8'
+          print('PASS: public unauthenticated APK download matches the verified original.')
+          PY
