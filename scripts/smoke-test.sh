@@ -106,6 +106,23 @@ run_agent_phase testAgentToolsAndPersistence evidence/agent-tools.txt
 adb shell am force-stop "$app_package"
 run_agent_phase testAgentRestartPreservesHistory evidence/agent-restart.txt
 adb shell am start -W -n "$app_package/org.solrdm.app.AgentActivity"
+# Activity launch completion precedes WebView's first rendered frame. Check the
+# visible accessibility tree before capturing evidence, rather than a blank frame.
+visible=false
+for attempt in 1 2 3 4 5; do
+  adb shell uiautomator dump /sdcard/solrdm-agent.xml > /dev/null
+  adb pull /sdcard/solrdm-agent.xml evidence/solrdm-agent-ui.xml > /dev/null
+  if grep -Fq 'Connect a model to start chatting' evidence/solrdm-agent-ui.xml; then
+    visible=true
+    break
+  fi
+  sleep 1
+done
+if [[ "$visible" != true ]]; then
+  echo 'Agent UI was not visible after launch.' >&2
+  adb logcat -d -v threadtime > evidence/agent-launch-logcat.txt
+  exit 1
+fi
 adb shell screencap -p /sdcard/solrdm-agent.png
 adb pull /sdcard/solrdm-agent.png evidence/solrdm-agent-emulator.png
 if [[ $# -ge 3 ]]; then
