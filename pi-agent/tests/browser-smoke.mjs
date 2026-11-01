@@ -40,6 +40,11 @@ async function noOverflow(page) {
   assert.ok(sizes.document <= sizes.viewport + 1 && sizes.body <= sizes.viewport + 1, JSON.stringify(sizes));
 }
 async function selectView(page, view) { await page.locator(`.nav[data-view="${view}"]`).click(); await page.locator(`#view-${view}`).waitFor({ state: 'visible' }); }
+async function inspectDetails(page, selector) {
+  const details = page.locator(selector);
+  if (await details.getAttribute('open') === null) await details.locator(':scope > summary').click();
+  return JSON.parse(await details.locator(':scope > pre').innerText());
+}
 
 try {
   await mkdir(evidence, { recursive: true });
@@ -51,8 +56,12 @@ from solrdm_pi.workspace import WorkspaceStore
 store = WorkspaceStore(sys.argv[1])
 interrupted = store.create('Browser QA interrupted calculation', [{'name':'calculate','arguments':{'expression':'6*7'},'purpose':'Check explicit retry after an unknown outcome'}])
 store.start_step(interrupted['id'])
+store = WorkspaceStore(sys.argv[1])
+paused = store.create('Browser QA paused calculation interrupted on restart', [{'name':'calculate','arguments':{'expression':'9*9'},'purpose':'Require retry when an interrupted step belongs to a paused plan'}])
+store.start_step(paused['id'])
+store.pause(paused['id'])
 planned = store.create('Browser QA goal <img src=x onerror="window.xss=true">', [{'name':'calculate','arguments':{'expression':'sqrt(144) + 2**3'},'purpose':'Execute the real calculator and retain its receipt'}])
-print(json.dumps({'planned': planned['id'], 'interrupted': interrupted['id']}))
+print(json.dumps({'planned': planned['id'], 'interrupted': interrupted['id'], 'paused': paused['id']}))
 `, dataDir], { cwd: root, env: { ...process.env, PYTHONPATH: root }, encoding: 'utf8' }));
   server = spawn('python3', ['-m', 'solrdm_pi', '--data-dir', dataDir, '--port', '19877'], {
     cwd: root, env: { ...process.env, PYTHONPATH: [root, join(repo, 'app/src/main/python'), process.env.PYTHONPATH].filter(Boolean).join(':') }, stdio: ['ignore', 'pipe', 'pipe'],
@@ -90,12 +99,12 @@ print(json.dumps({'planned': planned['id'], 'interrupted': interrupted['id']}))
   assert.equal(await page.locator('#task-detail .receipts').count(), 0);
   await page.locator('[data-task-action="run"]').click();
   await page.waitForFunction(() => document.querySelector('#task-detail').dataset.taskStatus === 'completed');
-  const taskReceipt = JSON.parse(await page.locator('#task-detail .receipts pre').innerText())[0];
+  const taskReceipt = (await inspectDetails(page, '#task-detail .receipts'))[0];
   assert.equal(taskReceipt.tool, 'calculate'); assert.equal(taskReceipt.status, 'completed'); assert.equal(taskReceipt.data.result, 20); realTaskExecutions++;
   assert.equal(await page.locator('[data-task-action="reflect"]').isDisabled(), true);
   await page.reload(); await selectView(page, 'agent');
   await page.waitForFunction(() => document.querySelector('#task-detail').dataset.taskStatus === 'completed');
-  assert.match(await page.locator('#task-detail .receipts pre').innerText(), /"result": 20/);
+  assert.equal((await inspectDetails(page, '#task-detail .receipts'))[0].data.result, 20);
   record('A persisted fixture plan waits for Run plan, executes the actual calculator and preserves its receipt across reload');
   await page.locator(`.task-choice[data-task-id="${taskFixtures.interrupted}"]`).click();
   await page.waitForFunction(() => document.querySelector('#task-detail').dataset.taskStatus === 'interrupted');
@@ -104,12 +113,24 @@ print(json.dumps({'planned': planned['id'], 'interrupted': interrupted['id']}))
   assert.equal(await page.locator('#task-detail .receipts').count(), 0);
   await page.locator('[data-task-action="retry"]').click();
   await page.waitForFunction(() => document.querySelector('#task-detail').dataset.taskStatus === 'completed');
-  assert.equal(JSON.parse(await page.locator('#task-detail .receipts pre').innerText())[0].data.result, 42); realTaskExecutions++;
-  const attempts = JSON.parse(await page.locator('.step-attempts pre').innerText());
+  assert.equal((await inspectDetails(page, '#task-detail .receipts'))[0].data.result, 42); realTaskExecutions++;
+  const attempts = await inspectDetails(page, '.step-attempts');
   assert.equal(attempts.length, 2); assert.equal(attempts[0].status, 'interrupted');
   await noOverflow(page);
   await page.screenshot({ path: join(evidence, 'desktop-agent-workspace.png'), fullPage: true });
   record('Restarted work exposes the interrupted attempt and only executes again after explicit Retry');
+  await page.locator(`.task-choice[data-task-id="${taskFixtures.paused}"]`).click();
+  await page.waitForFunction(() => document.querySelector('#task-detail').dataset.taskStatus === 'paused');
+  assert.equal(await page.locator('[data-task-action="resume"]').count(), 0);
+  assert.equal(await page.locator('[data-task-action="retry"]').innerText(), 'Retry interrupted step');
+  assert.match(await page.locator('.task-progress').innerText(), /outcome may be unknown.*explicit retry is required even if the plan is paused/s);
+  assert.equal(await page.locator('#task-detail .receipts').count(), 0);
+  await page.locator('[data-task-action="retry"]').click();
+  await page.waitForFunction(() => document.querySelector('#task-detail').dataset.taskStatus === 'completed');
+  assert.equal((await inspectDetails(page, '#task-detail .receipts'))[0].data.result, 81); realTaskExecutions++;
+  const pausedAttempts = await inspectDetails(page, '.step-attempts');
+  assert.equal(pausedAttempts.length, 2); assert.equal(pausedAttempts[0].status, 'interrupted');
+  record('A paused plan with an interrupted step exposes explicit Retry instead of Resume and preserves the unknown attempt');
   await selectView(page, 'models');
   await page.waitForFunction(() => document.querySelectorAll('.catalog-card').length >= 2);
   assert.match(await page.locator('#catalog').innerText(), /Qwen.*1.5B/s);
