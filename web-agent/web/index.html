@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#182826">
+  <meta name="description" content="Your personal workspace for conversation, research, document review and transparent scientific tools.">
+  <title>SOLRDM · Your thinking partner</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <button id="sidebar-backdrop" class="sidebar-backdrop" aria-label="Close navigation" hidden></button>
+  <aside class="sidebar" id="sidebar" aria-label="Workspace navigation">
+    <a class="brand" href="/" aria-label="SOLRDM home"><span class="brand-symbol" aria-hidden="true">S<span>↗</span></span><span>SOLRDM<small>YOUR THINKING PARTNER</small></span></a>
+    <button class="new-chat" id="new-chat"><span aria-hidden="true">＋</span> New conversation <kbd>⌘ K</kbd></button>
+    <div class="nav-caption">WORKSPACE</div>
+    <button class="nav-item active" id="nav-chat"><span aria-hidden="true">◌</span> Conversations</button>
+    <button class="nav-item" id="nav-workbench"><span aria-hidden="true">⌁</span> Scientific workbench <span class="tiny-tag">TOOLS</span></button>
+    <div class="history-heading"><span class="nav-caption">RECENT CONVERSATIONS</span><span id="history-count"></span></div>
+    <nav id="conversation-list" aria-label="Recent conversations"></nav>
+    <div class="sidebar-bottom">
+      <div class="local-note"><span aria-hidden="true">◈</span><span>Saved in this browser<small>Export a conversation to keep a copy.</small></span></div>
+      <button class="nav-item" id="settings-button"><span aria-hidden="true">⚙</span> Connection & capabilities</button>
+      <div class="profile"><span class="avatar">Y</span><div>Your workspace<small>Personal · Private Site</small></div><span class="profile-dot" aria-hidden="true"></span></div>
+    </div>
+  </aside>
+  <main class="workspace">
+    <header class="topbar">
+      <div class="heading-group"><button id="menu-button" class="icon-button mobile-only" aria-label="Open navigation" aria-expanded="false">☰</button><span class="breadcrumb">Workspace <span>/</span></span><button class="conversation-title" id="rename-chat" title="Rename conversation">New conversation <span aria-hidden="true">⌄</span></button></div>
+      <div class="top-actions"><span class="connection-badge" id="connection-badge"><i></i> Checking setup</span><button class="icon-button" id="export-button" title="Export conversation" aria-label="Export conversation">↥</button><button class="icon-button" id="clear-chat" title="Clear conversation" aria-label="Clear conversation">⌫</button></div>
+    </header>
+    <section id="setup-notice" class="setup-notice" hidden><span class="notice-icon">i</span><div><strong>Connect a model to start chatting</strong><span>Research and scientific tools are ready to use in the workbench.</span></div><button id="setup-details">View setup <span aria-hidden="true">↗</span></button></section>
+    <section class="conversation-scroll" id="conversation-scroll" aria-label="Conversation">
+      <div class="welcome" id="welcome">
+        <div class="eyebrow"><span></span> A LITTLE CURIOSITY GOES A LONG WAY</div>
+        <h1>What shall we<br><em>explore?</em></h1>
+        <p class="welcome-description">Bring a question, an idea, or something you’re working on.<br class="desktop-break"> Let’s make sense of it, together.</p>
+        <div class="starter-grid">
+          <button class="starter" data-mode="research" data-prompt="Help me research a topic. Ask me what I want to understand, then find sources and distinguish evidence from open questions."><span class="starter-icon">◎</span><strong>Follow a question</strong><span>Explore research, with sources.</span><i aria-hidden="true">↗</i></button>
+          <button class="starter" data-mode="review" data-prompt="I'd like a careful review of a document. Ask me to attach it and tell you the kind of feedback I need."><span class="starter-icon">▤</span><strong>A fresh pair of eyes</strong><span>Review a document or an image.</span><i aria-hidden="true">↗</i></button>
+          <button class="starter" data-mode="plan" data-prompt="Help me turn a goal into a practical plan. Ask me about the outcome, constraints and deadline, then suggest concrete next steps."><span class="starter-icon">↗</span><strong>Move an idea forward</strong><span>Make a plan. Work through a task.</span><i aria-hidden="true">↗</i></button>
+          <button class="starter" id="starter-simulate"><span class="starter-icon">⌁</span><strong>Try an experiment</strong><span>Explore a model. See the numbers.</span><i aria-hidden="true">↗</i></button>
+        </div>
+        <div class="welcome-footnote"><span aria-hidden="true">✦</span> Your questions. Clear reasoning. Room to change your mind.</div>
+      </div>
+      <div class="messages" id="messages" aria-live="polite" aria-relevant="additions"></div>
+      <div class="working-indicator" id="working-indicator" role="status" hidden><span class="thinking-orb"></span><span>Working through your request…</span><small>Results appear when the response is ready.</small></div>
+    </section>
+    <div class="composer-region">
+      <div id="feedback" class="feedback" role="status" hidden></div>
+      <form id="composer-form" class="composer">
+        <div class="mode-row" role="group" aria-label="Conversation mode"><button type="button" data-mode="chat" class="mode-button selected" aria-pressed="true">✦ Chat</button><button type="button" data-mode="research" class="mode-button" aria-pressed="false">◎ Research</button><button type="button" data-mode="review" class="mode-button" aria-pressed="false">▤ Review</button><button type="button" data-mode="plan" class="mode-button" aria-pressed="false">↗ Plan</button></div>
+        <div id="attachments" class="attachments" aria-live="polite"></div>
+        <label class="sr-only" for="message-input">Your message</label><textarea id="message-input" rows="2" maxlength="12000" placeholder="Ask anything, or share something to explore…"></textarea>
+        <div class="composer-footer"><div class="composer-left"><button class="attach-button" id="attach-button" type="button" aria-label="Attach an image, video, PDF or text document" title="Attach files">＋</button><span id="attachment-hint">Images, video, PDF & text</span></div><div class="send-group"><span class="keyboard-hint">Enter to send</span><button id="stop-button" type="button" class="stop-button" hidden>Stop</button><button id="send-button" class="send-button" type="submit" aria-label="Send message"><span>Send</span><span aria-hidden="true">↑</span></button></div></div>
+      </form>
+      <input type="file" id="file-input" accept=".txt,.md,.csv,.json,.pdf,.png,.jpg,.jpeg,.webp,.mp4,.webm" multiple hidden>
+      <div class="composer-note">SOLRDM can be mistaken. Check important conclusions. <button id="capabilities-link">What it can do ↗</button></div>
+    </div>
+  </main>
+  <dialog id="settings-dialog" class="dialog settings-dialog" aria-labelledby="settings-title"><div class="dialog-heading"><div><div class="eyebrow">YOUR WORKSPACE</div><h2 id="settings-title">Connection & capabilities</h2></div><button class="icon-button" data-close-dialog aria-label="Close connection settings">×</button></div><div class="dialog-body"><div class="capability-status" id="settings-status">Checking model setup…</div><h3>A partner for thinking and doing</h3><p>With a model connected, chat in everyday language, ask for opinions with reasons, review files, and work through tasks. The agent can choose its research and scientific tools within a request.</p><ul class="capability-list"><li><strong>Research</strong><span>Find papers and source links. Metadata and abstracts are not a full paper review.</span></li><li><strong>Scientific tools</strong><span>Projectile motion, damped oscillation, descriptive statistics and weighted decisions. Each result shows its assumptions.</span></li><li><strong>Files</strong><span>Images, PDFs and text. Videos are sampled into six frames; audio and events between frames are not analyzed.</span></li><li><strong>Decisions</strong><span>Compare alternatives and make recommendations. No sending messages, purchasing, deleting files or unrestricted code execution.</span></li></ul><h3>Your data</h3><p>Conversation history stays in this browser and does not sync between devices. Sending a message sends its text, recent conversation context and selected files to the configured model provider. Attachment bytes are not retained after sending. Attach a file again when asking for a fresh review or details not captured in the previous response. Use Export to keep a copy of your conversation.</p><p class="muted">This web app is a separate assistant interface. It does not run the complete SOLRDM v0.7 Python engine or claim general intelligence.</p><div id="server-limitations"></div></div><div class="dialog-footer"><button class="secondary-button" id="refresh-status">Check setup again</button><button class="primary-button" data-close-dialog>Done</button></div></dialog>
+  <dialog id="workbench-dialog" class="dialog workbench-dialog" aria-labelledby="workbench-title"><div class="dialog-heading"><div><div class="eyebrow">MAKE AN IDEA TESTABLE</div><h2 id="workbench-title">Scientific workbench</h2></div><button class="icon-button" data-close-dialog aria-label="Close workbench">×</button></div><div class="dialog-body"><p class="muted">These tools run calculations directly. No conversation model is required.</p><label class="field-label" for="tool-select">Choose a tool</label><select id="tool-select"><option value="simulate_projectile">Projectile motion</option><option value="simulate_oscillator">Damped oscillator</option><option value="describe_statistics">Descriptive statistics</option><option value="compare_options">Compare options</option><option value="research_papers">Find research papers</option></select><form id="tool-form"><div id="tool-fields" class="tool-fields"></div><button class="primary-button" id="run-tool" type="submit">Run calculation <span aria-hidden="true">↗</span></button></form><div id="tool-status" role="status" class="tool-status"></div><div id="tool-result" class="tool-result"></div></div><div class="dialog-footer"><span class="muted">Results describe the chosen model, not a real-world experiment.</span><button class="secondary-button" id="save-tool-result" disabled>Add to conversation</button></div></dialog>
+  <dialog id="rename-dialog" class="dialog small-dialog" aria-labelledby="rename-title"><form id="rename-form"><div class="dialog-heading"><h2 id="rename-title">Name this conversation</h2><button type="button" class="icon-button" data-close-dialog aria-label="Close rename dialog">×</button></div><div class="dialog-body"><label class="field-label" for="title-input">Conversation title</label><input id="title-input" maxlength="80" required></div><div class="dialog-footer"><button type="button" class="secondary-button" data-close-dialog>Cancel</button><button class="primary-button" type="submit">Save title</button></div></form></dialog>
+  <dialog id="export-dialog" class="dialog small-dialog" aria-labelledby="export-title"><div class="dialog-heading"><h2 id="export-title">Keep a copy</h2><button class="icon-button" data-close-dialog aria-label="Close export dialog">×</button></div><div class="dialog-body"><p>Download this conversation, including source links and recorded tool results. Original attachment files are not included.</p><div class="export-options"><button class="secondary-button" id="export-markdown">Download Markdown ↥</button><button class="secondary-button" id="export-json">Download JSON ↥</button></div></div></dialog>
+</body>
+</html>

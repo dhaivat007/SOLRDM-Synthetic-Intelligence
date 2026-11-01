@@ -1,0 +1,10 @@
+dist/
+artifacts/
+.env
+.env.*
+!.env.example
+.dev.vars
+node_modules/
+*.log
+src/ui.mjs
+worker/index.js
