@@ -1,0 +1,236 @@
+name: Build and verify SOLRDM Pi Agent
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'pi-agent/**'
+      - '.github/workflows/pi-agent.yml'
+  pull_request:
+    paths:
+      - 'pi-agent/**'
+      - '.github/workflows/pi-agent.yml'
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test supplied engine and Pi application
+        env:
+          PYTHONPATH: pi-agent:app/src/main/python
+        run: |
+          mkdir -p pi-evidence
+          python -m unittest discover -s tests -v 2>&1 | tee pi-evidence/original-engine-tests.log
+          python -m unittest discover -s pi-agent/tests -p 'test_*.py' -v 2>&1 | tee pi-evidence/pi-tests.log
+          bash -n pi-agent/install.sh pi-agent/launch.sh
+          node --check pi-agent/web/app.js
+      - name: Install browser test dependencies
+        run: |
+          npm --prefix pi-agent install --no-save --package-lock=false playwright@1.56.1
+          cd pi-agent
+          npx playwright install --with-deps chromium
+      - name: Exercise first-run setup and local UI
+        env:
+          PYTHONPATH: pi-agent:app/src/main/python
+        run: node pi-agent/tests/browser-smoke.mjs 2>&1 | tee pi-evidence/browser-smoke.log
+      - name: Record live online research availability
+        run: python3 pi-agent/scripts/smoke_research.py --output pi-evidence/research-smoke.json
+      - name: Retain application test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SOLRDM-Pi5-0.9.0-application-test-evidence
+          path: |
+            pi-evidence/
+            pi-agent/evidence/
+          if-no-files-found: warn
+          retention-days: 30
+
+  arm64:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare output directories
+        run: mkdir -p pi-output pi-evidence pi-agent/runtime/bin
+      - name: Reuse pinned ARM64 runtime
+        id: runtime-cache
+        uses: actions/cache@v4
+        with:
+          path: pi-agent/runtime
+          key: llama-8642541b255bfb5dc39cd351a178be09013a55d6-bookworm-arm64-static-cxx-v1
+      - name: Build CPU runtime against Raspberry Pi OS Bookworm-compatible libraries
+        if: steps.runtime-cache.outputs.cache-hit != 'true'
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work debian:bookworm-slim bash -euc '
+            apt-get update
+            apt-get install -y --no-install-recommends build-essential cmake git ca-certificates
+            git init /tmp/llama-source
+            git -C /tmp/llama-source remote add origin https://github.com/ggml-org/llama.cpp.git
+            git -C /tmp/llama-source fetch --depth=1 origin 8642541b255bfb5dc39cd351a178be09013a55d6
+            git -C /tmp/llama-source checkout --detach FETCH_HEAD
+            test "$(git -C /tmp/llama-source rev-parse HEAD)" = 8642541b255bfb5dc39cd351a178be09013a55d6
+            cmake -S /tmp/llama-source -B /tmp/llama-build -DCMAKE_BUILD_TYPE=Release \
+              -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF -DGGML_CPU_ARM_ARCH=armv8-a \
+              -DGGML_OPENMP=OFF -DLLAMA_OPENSSL=OFF -DLLAMA_SUBPROCESS=OFF \
+              -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_APP=OFF \
+              -DLLAMA_BUILD_SERVER=ON -DLLAMA_BUILD_UI=OFF -DLLAMA_USE_PREBUILT_UI=OFF \
+              "-DCMAKE_EXE_LINKER_FLAGS=-static-libgcc -static-libstdc++"
+            cmake --build /tmp/llama-build --target llama-server -j 2
+            cp /tmp/llama-build/bin/llama-server /work/pi-agent/runtime/bin/llama-server
+            cp /tmp/llama-source/LICENSE /work/pi-agent/runtime/LICENSE-llama.cpp.txt
+            printf "%s\n" "llama.cpp commit: 8642541b255bfb5dc39cd351a178be09013a55d6" "Build: Debian 12 ARM64, armv8-a CPU, static libstdc++/libgcc, no OpenMP, no HTTPS, no subprocess tool" > /work/pi-agent/runtime/BUILD.txt
+            /work/pi-agent/runtime/bin/llama-server --version
+            ldd /work/pi-agent/runtime/bin/llama-server
+          ' 2>&1 | tee pi-evidence/runtime-build.log
+      - name: Verify runtime architecture and provenance
+        run: |
+          file pi-agent/runtime/bin/llama-server | tee pi-evidence/runtime-file.txt
+          file pi-agent/runtime/bin/llama-server | grep -q 'ARM aarch64'
+          pi-agent/runtime/bin/llama-server --version 2>&1 | tee pi-evidence/runtime-version.txt
+          ldd pi-agent/runtime/bin/llama-server | tee pi-evidence/runtime-libraries.txt
+          sha256sum pi-agent/runtime/bin/llama-server > pi-evidence/runtime-SHA256.txt
+      - name: Download complete pinned language and mathematics model weights
+        run: |
+          python3 pi-agent/scripts/smoke_runtime.py --model-dir pi-output --runtime pi-agent/runtime/bin/llama-server --output pi-output --manifest-only
+          python3 - <<'PY'
+          import json, pathlib, subprocess
+          output = pathlib.Path('pi-output')
+          for model in json.loads((output / 'MODEL-MANIFEST.json').read_text()):
+              subprocess.run(['curl', '--fail', '--location', '--retry', '3', '--max-time', '1800',
+                              '--proto', '=https', '--proto-redir', '=https',
+                              '--output', str(output / model['file']), model['url']], check=True)
+          PY
+          curl --fail --location --retry 3 --proto '=https' --proto-redir '=https' \
+            'https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/raw/dd26da440ef0330c47919d1ecae0966d24022222/LICENSE' \
+            --output pi-output/LICENSE-Qwen-language.txt
+          curl --fail --location --retry 3 --proto '=https' --proto-redir '=https' \
+            'https://huggingface.co/Qwen/Qwen2.5-Math-1.5B-Instruct/raw/main/LICENSE' \
+            --output pi-output/LICENSE-Qwen-mathematics.txt
+          grep -q 'Apache License' pi-output/LICENSE-Qwen-language.txt
+          grep -q 'Apache License' pi-output/LICENSE-Qwen-mathematics.txt
+      - name: Run actual ARM64 inference with both complete model files
+        run: |
+          python3 pi-agent/scripts/smoke_runtime.py --model-dir pi-output --runtime pi-agent/runtime/bin/llama-server --output pi-evidence 2>&1 | tee pi-evidence/real-inference.log
+      - name: Package application, runtime and original Python engine
+        run: python3 pi-agent/scripts/package.py --output pi-output --require-runtime 2>&1 | tee pi-evidence/package.log
+      - name: Install the exact package and verify service startup
+        run: |
+          mkdir -p "$RUNNER_TEMP/pi-package" "$RUNNER_TEMP/pi-install" "$RUNNER_TEMP/pi-desktop"
+          tar -xzf pi-output/SOLRDM-Pi5-0.9.0-linux-arm64.tar.gz -C "$RUNNER_TEMP/pi-package"
+          bash "$RUNNER_TEMP/pi-package/SOLRDM-Pi5-0.9.0/install.sh" --no-launch --install-dir "$RUNNER_TEMP/pi-install" --desktop-dir "$RUNNER_TEMP/pi-desktop" 2>&1 | tee pi-evidence/install.log
+          SOLRDM_NO_BROWSER=1 bash "$RUNNER_TEMP/pi-install/app/launch.sh"
+          curl --fail 'http://127.0.0.1:8787/health' | tee pi-evidence/installed-health.json
+          python3 - <<'PY'
+          import json, pathlib
+          data = json.loads(pathlib.Path('pi-evidence/installed-health.json').read_text())
+          assert data['app'] == 'SOLRDM Pi Agent' and data['ok'] is True, data
+          PY
+          test -f "$RUNNER_TEMP/pi-desktop/solrdm-pi.desktop"
+          python3 pi-agent/scripts/smoke_installed.py --model pi-output/qwen2.5-1.5b-instruct-q4_k_m.gguf --output pi-evidence/installed-real-chat.json
+          printf '%s\n' 'Keep this existing user data.' > "$RUNNER_TEMP/pi-install/data/update-sentinel.txt"
+          bash "$RUNNER_TEMP/pi-package/SOLRDM-Pi5-0.9.0/install.sh" --no-launch --install-dir "$RUNNER_TEMP/pi-install" --desktop-dir "$RUNNER_TEMP/pi-desktop" 2>&1 | tee pi-evidence/reinstall.log
+          test -f "$RUNNER_TEMP/pi-install/data/update-sentinel.txt"
+          SOLRDM_NO_BROWSER=1 bash "$RUNNER_TEMP/pi-install/app/launch.sh"
+          curl --fail 'http://127.0.0.1:8787/health' > pi-evidence/reinstalled-health.json
+          kill "$(cat "$RUNNER_TEMP/pi-install/data/server.pid")"
+      - name: Record all downloadable asset checksums
+        run: |
+          cp pi-evidence/real-inference.json pi-output/
+          cd pi-output
+          find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\n' | sort | xargs sha256sum > SHA256SUMS
+          sha256sum --check SHA256SUMS
+      - name: Upload installable application and complete model files
+        uses: actions/upload-artifact@v4
+        with:
+          name: SOLRDM-Pi5-0.9.0-app-and-models
+          path: pi-output/
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload a separate application-only download
+        uses: actions/upload-artifact@v4
+        with:
+          name: SOLRDM-Pi5-0.9.0-installable-app
+          path: |
+            pi-output/SOLRDM-Pi5-0.9.0-linux-arm64.tar.gz
+            pi-output/SHA256SUMS
+            pi-output/BUILD-INFO.json
+            pi-output/MODEL-MANIFEST.json
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 30
+      - name: Retain native ARM64 build and inference evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SOLRDM-Pi5-0.9.0-ARM64-test-evidence
+          path: pi-evidence/
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Retain installed service diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SOLRDM-Pi5-0.9.0-installed-service-logs
+          path: |
+            ${{ runner.temp }}/pi-install/data/server.log
+            ${{ runner.temp }}/pi-install/data/llama-server.log
+          if-no-files-found: ignore
+          retention-days: 30
+
+  publish:
+    needs: [tests, arm64]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/codex/solrdm-pi-agent' && contains(github.event.head_commit.message, '[publish-pi]')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: SOLRDM-Pi5-0.9.0-app-and-models
+          path: pi-output
+      - name: Verify exact artifacts before public publication
+        run: |
+          cd pi-output
+          sha256sum --check SHA256SUMS
+      - name: Publish app and full model files as a preview release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cat > release-notes.md <<'EOF'
+          Installable SOLRDM Pi Agent for Raspberry Pi 5 with 8 GB RAM and 64-bit Raspberry Pi OS Bookworm or newer.
+
+          Download SOLRDM-Pi5-0.9.0-linux-arm64.tar.gz and SHA256SUMS. Verify the checksum, extract the archive, and run ./install.sh. Complete language and mathematics GGUF files are separate assets; attach them in the Models tab or download them from the built-in catalog.
+
+          The application package includes the ARM64 llama.cpp runtime and all 16 supplied SOLRDM v0.7 Python modules. These local model files support text, not image/video/audio understanding. Scientific calculation, simulations and source-backed research are tools. Persistent observations require review; model weights are not automatically retrained.
+
+          Tests include native ARM64 Linux inference with both published model files and installation/service startup. No physical Raspberry Pi installation or performance claim is made. BUILD-INFO.json and real-inference.json record the build and exact inference evidence. This is a preview release.
+          EOF
+          printf '\nVerified build: https://github.com/%s/actions/runs/%s\n' "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> release-notes.md
+          gh release create solrdm-pi-v0.9.0-preview pi-output/* --target "$GITHUB_SHA" --title 'SOLRDM Pi Agent 0.9.0 preview — app and complete models' --notes-file release-notes.md --prerelease --latest=false
+      - name: Verify unauthenticated public application download
+        run: |
+          curl --fail --location --retry 3 --proto '=https' --proto-redir '=https' \
+            "https://github.com/$GITHUB_REPOSITORY/releases/download/solrdm-pi-v0.9.0-preview/SOLRDM-Pi5-0.9.0-linux-arm64.tar.gz" \
+            --output public-download.tar.gz
+          expected="$(awk '$2 == "SOLRDM-Pi5-0.9.0-linux-arm64.tar.gz" {print $1}' pi-output/SHA256SUMS)"
+          printf '%s  public-download.tar.gz\n' "$expected" | sha256sum --check

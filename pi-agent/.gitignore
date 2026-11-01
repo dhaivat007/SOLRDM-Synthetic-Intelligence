@@ -1,0 +1,7 @@
+dist/
+runtime/
+engine/
+*.gguf
+*.part
+settings.json
+models.json
