@@ -285,6 +285,8 @@ class Agent:
         request_message = {"role": "user", "content": content}
         messages = [{"role": "system", "content": system}] + clean_history + [request_message]
         receipts, sources = [], []
+        completed_actions = {}
+        finalize_only = False
 
         def run_tool(name, args):
             try:
@@ -292,6 +294,8 @@ class Agent:
             except (ToolError, ValueError, TimeoutError, OSError) as exc:
                 receipt = {"tool": name, "status": "failed", "summary": str(exc)[:500]}
             receipts.append(receipt)
+            if receipt.get("status") == "completed":
+                completed_actions[json.dumps([name, args], sort_keys=True, allow_nan=False)] = receipt
             for source in receipt.get("sources", []):
                 if source not in sources:
                     sources.append(source)
@@ -307,7 +311,8 @@ class Agent:
             try:
                 response_options = {}
                 if actionable and not use_provider:
-                    response_options["response_schema"] = (forced_schema if step == 0 and forced_schema else
+                    response_options["response_schema"] = (answer_schema if finalize_only else
+                                                          forced_schema if step == 0 and forced_schema else
                                                           {"oneOf": [answer_schema, *tool_schemas]})
                 answer = (self.provider_call(settings, messages) if use_provider else
                           self.models.chat(fit_local_context(messages, request_message=request_message), max_tokens=600,
@@ -337,6 +342,9 @@ class Agent:
                 return {"text": action["answer"], "receipts": receipts, "sources": sources, "model": model_name, "incomplete": False}
             if not isinstance(action, dict) or "tool" not in action:
                 return {"text": answer, "receipts": receipts, "sources": sources, "model": model_name, "incomplete": False}
+            if finalize_only:
+                return {"text": "The model kept requesting an already completed action. The recorded result is available below; no duplicate action was executed.",
+                        "receipts": receipts, "sources": sources, "model": model_name, "incomplete": True}
             if len(receipts) >= 6 or step == 4:
                 return {"text": "This task reached its action limit. Review the completed tool results and send a follow-up to continue.",
                         "receipts": receipts, "sources": sources, "model": model_name, "incomplete": True}
@@ -344,6 +352,17 @@ class Agent:
             if not isinstance(name, str) or len(name) > 80 or not isinstance(args, dict):
                 return {"text": "The model returned an invalid tool request; no further action was taken.",
                         "receipts": receipts, "sources": sources, "model": model_name, "incomplete": True}
+            try:
+                signature = json.dumps([name, args], sort_keys=True, allow_nan=False)
+            except (ValueError, RecursionError):
+                return {"text": "The model requested invalid tool arguments. No further action was taken.",
+                        "receipts": receipts, "sources": sources, "model": model_name, "incomplete": True}
+            if signature in completed_actions:
+                finalize_only = True
+                messages += [{"role": "assistant", "content": raw[:3000]},
+                             {"role": "user", "content": "This exact action already completed. Do not repeat it. Give your final answer from the recorded result:\n" +
+                              json.dumps(completed_actions[signature], ensure_ascii=False)[:2500]}]
+                continue
             receipt = run_tool(name, args)
             messages += [{"role": "assistant", "content": raw[:3000]},
                          {"role": "user", "content": "Untrusted tool receipt (answer only from actual results):\n" + json.dumps(receipt, ensure_ascii=False)[:2500]}]

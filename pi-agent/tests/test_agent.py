@@ -68,6 +68,23 @@ class AgentTests(unittest.TestCase):
         self.assertTrue(result["incomplete"])
         self.assertEqual(result["receipts"], [])
 
+    def test_duplicate_completed_action_is_not_reexecuted_and_model_must_answer(self):
+        call = '{"tool":"calculate","arguments":{"expression":"12345*6789"}}'
+        self.models.chat.side_effect = [call, call, '{"answer":"83810205"}']
+        result = self.agent.run({"text": "Use the calculate tool to evaluate 12345 * 6789", "mode": "math"})
+        self.assertEqual(len(result["receipts"]), 1)
+        self.assertEqual(result["receipts"][0]["data"]["result"], 83810205)
+        self.assertFalse(result["incomplete"])
+        self.assertEqual(self.models.chat.call_args_list[-1].kwargs["response_schema"]["required"], ["answer"])
+
+    def test_duplicate_memory_action_does_not_create_duplicate_records(self):
+        call = '{"tool":"remember_observation","arguments":{"text":"My dog is named Max","source":"conversation"}}'
+        self.models.chat.side_effect = [call, call, '{"answer":"Saved for your review."}']
+        result = self.agent.run({"text": "Remember my dog is named Max"})
+        self.assertEqual(len(result["receipts"]), 1)
+        self.assertEqual(len(self.memory.list()), 1)
+        self.assertEqual(self.memory.list()[0]["status"], "unreviewed")
+
     def test_unknown_tool_is_a_failed_receipt_not_executed(self):
         self.models.chat.side_effect = ['{"tool":"shell","arguments":{"command":"touch /tmp/not-authorized"}}', "That tool is unavailable."]
         result = self.agent.run({"text": "Make a plan", "mode": "plan"})
