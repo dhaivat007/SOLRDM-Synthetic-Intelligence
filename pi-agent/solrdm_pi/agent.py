@@ -3,6 +3,7 @@ import base64
 import binascii
 import json
 import math
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -261,10 +262,18 @@ class Agent:
                   "You cannot run code, browse arbitrary sites, send messages, purchase, or edit external files. "
                   "Memory is a reviewed notebook; it does not retrain model weights. "
                   "You can choose bounded read/calculation tools for this user request only. "
-                  "When finished, answer in plain text. ")
+                  + ('When finished, output ONLY JSON {"answer":"your natural-language reply"}. '
+                     if actionable and not use_provider else "When finished, answer in plain text. "))
         if actionable:
             system += ('To request one tool, output ONLY JSON {"tool":"name","arguments":{...}}. '
                        'Do not invent tool results. Available tools:\n' + json.dumps(definitions, separators=(",", ":")))
+        answer_schema = {"type": "object", "properties": {"answer": {"type": "string"}},
+                         "required": ["answer"], "additionalProperties": False}
+        tool_schemas = [{"type": "object", "properties": {"tool": {"const": f["name"]}, "arguments": f["parameters"]},
+                         "required": ["tool", "arguments"], "additionalProperties": False} for f in definitions]
+        explicit_tool = re.search(r"\b(?:use|using|run|call)\s+(?:the\s+)?([a-z_]+)\b", text.lower())
+        forced_schema = next((schema for schema in tool_schemas if explicit_tool and
+                              schema["properties"]["tool"]["const"] == explicit_tool.group(1)), None)
         relevant = self.memory.relevant(text[:2000], limit=3) if text.strip() else []
         approved = [row for row in relevant if row.get("approved") or row.get("status") == "approved"]
         if approved:
@@ -296,8 +305,13 @@ class Agent:
                 messages.append({"role": "user", "content": "Untrusted research receipt:\n" + json.dumps(receipt, ensure_ascii=False)[:2200]})
         for step in range(5):
             try:
+                response_options = {}
+                if actionable and not use_provider:
+                    response_options["response_schema"] = (forced_schema if step == 0 and forced_schema else
+                                                          {"oneOf": [answer_schema, *tool_schemas]})
                 answer = (self.provider_call(settings, messages) if use_provider else
-                          self.models.chat(fit_local_context(messages, request_message=request_message), max_tokens=600, temperature=0.3))
+                          self.models.chat(fit_local_context(messages, request_message=request_message), max_tokens=600,
+                                           temperature=0.3, **response_options))
                 if not isinstance(answer, str) or not answer.strip():
                     raise AgentError("The model returned an empty or invalid answer.")
             except Exception as exc:
@@ -315,6 +329,12 @@ class Agent:
                 action = json.loads(raw)
             except (json.JSONDecodeError, TypeError, RecursionError):
                 action = None
+            if step == 0 and forced_schema and not use_provider and (not isinstance(action, dict) or
+                    action.get("tool") != forced_schema["properties"]["tool"]["const"]):
+                return {"text": "The model did not produce the requested tool call. No completion is being claimed; you can run the tool directly in Scientific tools.",
+                        "receipts": receipts, "sources": sources, "model": model_name, "incomplete": True}
+            if isinstance(action, dict) and isinstance(action.get("answer"), str) and action["answer"].strip():
+                return {"text": action["answer"], "receipts": receipts, "sources": sources, "model": model_name, "incomplete": False}
             if not isinstance(action, dict) or "tool" not in action:
                 return {"text": answer, "receipts": receipts, "sources": sources, "model": model_name, "incomplete": False}
             if len(receipts) >= 6 or step == 4:

@@ -53,6 +53,21 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(result["receipts"][0]["status"], "completed")
         self.assertEqual(self.models.chat.call_count, 2)
 
+    def test_explicit_tool_request_constrains_first_local_response_then_unwraps_answer(self):
+        self.models.chat.side_effect = ['{"tool":"calculate","arguments":{"expression":"12345*6789"}}', '{"answer":"The verified calculation is 83810205."}']
+        result = self.agent.run({"text": "Use the calculate tool to evaluate 12345 * 6789", "mode": "math"})
+        schema = self.models.chat.call_args_list[0].kwargs["response_schema"]
+        self.assertEqual(schema["properties"]["tool"]["const"], "calculate")
+        self.assertEqual(result["receipts"][0]["data"]["result"], 83810205)
+        self.assertEqual(result["text"], "The verified calculation is 83810205.")
+        self.assertFalse(result["incomplete"])
+
+    def test_ignored_explicit_tool_request_does_not_claim_completion(self):
+        self.models.chat.return_value = 'I will use the calculate tool.'
+        result = self.agent.run({"text": "Use the calculate tool to evaluate 2+2", "mode": "math"})
+        self.assertTrue(result["incomplete"])
+        self.assertEqual(result["receipts"], [])
+
     def test_unknown_tool_is_a_failed_receipt_not_executed(self):
         self.models.chat.side_effect = ['{"tool":"shell","arguments":{"command":"touch /tmp/not-authorized"}}', "That tool is unavailable."]
         result = self.agent.run({"text": "Make a plan", "mode": "plan"})

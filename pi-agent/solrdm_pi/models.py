@@ -560,7 +560,7 @@ class ModelManager:
                 raise ValueError("The model runtime returned an invalid response.")
             return result
 
-    def chat(self, messages, max_tokens=512, temperature=0.7, timeout=180):
+    def chat(self, messages, max_tokens=512, temperature=0.7, timeout=180, response_schema=None):
         if not isinstance(messages, list) or not 1 <= len(messages) <= 40:
             raise ValueError("Chat requires 1 to 40 text messages.")
         total = 0
@@ -575,6 +575,15 @@ class ModelManager:
             raise ValueError("Invalid model response length.")
         if isinstance(temperature, bool) or not isinstance(temperature, (int, float)) or not 0 <= temperature <= 2:
             raise ValueError("Invalid sampling temperature.")
+        if response_schema is not None:
+            if not isinstance(response_schema, dict):
+                raise ValueError("The model response schema must be a JSON object.")
+            try:
+                encoded_schema = json.dumps(response_schema, allow_nan=False)
+            except (TypeError, ValueError, RecursionError) as exc:
+                raise ValueError("The model response schema must contain valid JSON.") from exc
+            if len(encoded_schema) > 20000:
+                raise ValueError("The model response schema exceeds 20,000 characters.")
         if not self._chat_lock.acquire(blocking=False):
             raise ValueError("The local model is already answering. Wait for it to finish.")
         try:
@@ -582,9 +591,13 @@ class ModelManager:
                 raise ValueError("Load a model and wait until it is ready before chatting.")
             generation = self._generation
             try:
-                result = self._runtime_json("/v1/chat/completions", {
+                payload = {
                     "messages": messages, "max_tokens": max_tokens, "temperature": temperature,
-                    "stream": False}, timeout=timeout)
+                    "stream": False}
+                if response_schema is not None:
+                    payload["response_format"] = {"type": "json_schema", "json_schema": {
+                        "name": "solrdm_action", "strict": True, "schema": response_schema}}
+                result = self._runtime_json("/v1/chat/completions", payload, timeout=timeout)
             except Exception as exc:
                 raise ValueError("The local model could not finish this request. Try a shorter message or check runtime status.") from exc
             if generation != self._generation:

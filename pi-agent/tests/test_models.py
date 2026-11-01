@@ -264,6 +264,27 @@ class ModelTests(unittest.TestCase):
             self.assertEqual(answer, "Partial or complete text")
             self.assertEqual(answer.incomplete, incomplete)
 
+    def test_chat_sends_strict_response_schema_when_requested(self):
+        self.manager._state = "ready"
+        schema = {"type": "object", "properties": {"answer": {"type": "string"}},
+                  "required": ["answer"], "additionalProperties": False}
+        response = {"choices": [{"message": {"content": '{"answer":"hello"}'}, "finish_reason": "stop"}]}
+        with patch.object(self.manager, "_runtime_json", return_value=response) as runtime:
+            answer = self.manager.chat([{"role": "user", "content": "Hello"}], response_schema=schema)
+        self.assertEqual(answer, '{"answer":"hello"}')
+        self.assertEqual(runtime.call_args.args[1]["response_format"], {
+            "type": "json_schema", "json_schema": {"name": "solrdm_action", "strict": True, "schema": schema}})
+        with patch.object(self.manager, "_runtime_json", return_value=response) as runtime:
+            self.manager.chat([{"role": "user", "content": "Hello"}])
+        self.assertNotIn("response_format", runtime.call_args.args[1])
+
+    def test_chat_rejects_invalid_or_oversized_response_schema(self):
+        for schema in ([], {"description": "x" * 20001}, {"bad": object()}, {"bad": float("nan")}):
+            with patch.object(self.manager, "_runtime_json") as runtime:
+                with self.assertRaisesRegex(ValueError, "schema"):
+                    self.manager.chat([{"role": "user", "content": "Hello"}], response_schema=schema)
+            runtime.assert_not_called()
+
 
 class DownloadNetworkTests(unittest.TestCase):
     def test_urls_reject_credentials_schemes_and_nonstandard_ports(self):
