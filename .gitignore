@@ -11,3 +11,6 @@ __pycache__/
 
 
 *.neural.json
+
+# Generated from tracked web-agent sources during Gradle preBuild.
+app/src/main/assets/agent/

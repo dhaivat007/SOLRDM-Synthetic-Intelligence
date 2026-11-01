@@ -1,0 +1,13 @@
+{
+  "name": "solrdm-agent-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "test": "node tests/all.mjs",
+    "build": "node scripts/build.mjs",
+    "start": "node scripts/serve.mjs",
+    "validate": "node scripts/validate-artifact.mjs"
+  }
+}

@@ -1,0 +1,58 @@
+name: Build SOLRDM Web Agent
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'web-agent/**'
+      - '.github/workflows/build-web.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+        working-directory: web-agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build and verify Worker
+        run: |
+          mkdir -p evidence
+          npm run build 2>&1 | tee evidence/build.log
+          npm test 2>&1 | tee evidence/tests.log
+          npm run validate 2>&1 | tee evidence/artifact-validation.log
+          node --check web/app.js
+      - name: Install browser test tools
+        run: |
+          npm install --no-save --package-lock=false playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Exercise desktop and phone UI
+        run: node scripts/browser-smoke.mjs 2>&1 | tee evidence/browser-smoke.log
+      - name: Package source and build with SHA-256
+        run: |
+          mkdir -p ../web-output
+          tar --exclude='./node_modules' --exclude='./.git' --exclude='./artifacts' -czf ../web-output/SOLRDM-Web-Agent-0.1.0.tar.gz .
+          cd ../web-output
+          sha256sum SOLRDM-Web-Agent-0.1.0.tar.gz > SHA256SUMS
+      - name: Upload verified web application
+        uses: actions/upload-artifact@v4
+        with:
+          name: SOLRDM-Web-Agent-0.1.0
+          path: web-output/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SOLRDM-Web-Agent-test-evidence
+          path: web-agent/evidence/
+          if-no-files-found: warn
+          retention-days: 30
