@@ -1,5 +1,6 @@
 """Loopback-only desktop web application with per-launch request authentication."""
 import argparse
+import fcntl
 import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import importlib
@@ -19,6 +20,9 @@ from .agent import Agent, AgentError, provider_endpoint
 from .memory import MemoryStore
 from .models import CATALOG, ModelManager
 from .tools import TOOL_DEFINITIONS, execute_tool
+from .workspace import WorkspaceStore
+from .planning import TaskController
+from .awareness import capability_snapshot, self_description
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -97,10 +101,28 @@ class Application:
         self.data_dir = Path(data_dir).expanduser().resolve()
         self.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.data_dir.chmod(0o700)
+        # Acquire ownership before recovery, which must never interrupt a live
+        # executor merely because a second process tried to start on another port.
+        self.instance_fd = os.open(self.data_dir / "application.lock", os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(self.instance_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            os.close(self.instance_fd)
+            self.instance_fd = None
+            raise ValueError("SOLRDM is already using this data directory. Open the running app or stop it first.") from None
+        try:
+            self._initialize(runtime_path)
+        except Exception:
+            self.close()
+            raise
+
+    def _initialize(self, runtime_path):
         self.settings = Settings(self.data_dir)
         self.models = ModelManager(self.data_dir, runtime_path=runtime_path or self.settings.get()["runtime_path"] or None)
         self.memory = MemoryStore(self.data_dir)
-        self.agent = Agent(self.models, self.memory, lambda: self.settings.get(private=True))
+        self.workspace = WorkspaceStore(self.data_dir)
+        self.agent = Agent(self.models, self.memory, lambda: self.settings.get(private=True), awareness=self.awareness)
+        self.tasks = TaskController(self.agent, self.workspace, self.memory)
         self.token = secrets.token_urlsafe(32)
         self.bridge = None
         for candidate in (ROOT / "engine", ROOT.parent / "app/src/main/python"):
@@ -114,6 +136,10 @@ class Application:
                 self.bridge = None
         except (ImportError, ValueError, OSError):
             self.bridge = None
+
+    def awareness(self):
+        snapshot = capability_snapshot(self.models.status(), self.settings.get(), self.memory.stats(), self.workspace.stats())
+        return {**snapshot, "description": self_description(snapshot)}
 
     def engine(self, command, payload):
         if not self.bridge:
@@ -139,6 +165,12 @@ class Application:
         if method == "GET":
             if path == "/api/status":
                 return self.status()
+            if path == "/api/awareness":
+                return self.awareness()
+            if path == "/api/tasks":
+                return {"tasks": self.workspace.summaries(limit=100)}
+            if path.startswith("/api/tasks/"):
+                return {"task": self.workspace.get(int(path.removeprefix("/api/tasks/")))}
             if path == "/api/models":
                 return {"models": self.models.list_models()}
             if path == "/api/catalog":
@@ -192,6 +224,16 @@ class Application:
             return result
         if path == "/api/chat":
             return self.agent.run(data)
+        if path == "/api/tasks/plan":
+            return {"task": self.tasks.plan(data.get("goal"))}
+        if path in ("/api/tasks/run", "/api/tasks/resume", "/api/tasks/retry"):
+            return {"task": self.tasks.run(data.get("id"), path.rsplit("/", 1)[-1])}
+        if path in ("/api/tasks/pause", "/api/tasks/cancel"):
+            return {"task": getattr(self.workspace, path.rsplit("/", 1)[-1])(data.get("id"))}
+        if path == "/api/tasks/reflect":
+            return {"task": self.tasks.reflect(data.get("id"))}
+        if path == "/api/tasks/delete":
+            return self.workspace.delete(data.get("id"))
         if path == "/api/tools":
             return {"receipt": execute_tool(data.get("name"), data.get("args", {}), memory=self.memory)}
         if path == "/api/memory":
@@ -205,7 +247,24 @@ class Application:
         raise LookupError("Route not found.")
 
     def close(self):
-        self.models.close()
+        if hasattr(self, "tasks"):
+            self.tasks.close()
+        if hasattr(self, "models"):
+            self.models.close()
+        if self.instance_fd is not None:
+            descriptor = self.instance_fd
+            self.instance_fd = None
+            worker = self.tasks.worker if hasattr(self, "tasks") else None
+            if worker and worker.is_alive():
+                # A closing in-process app may still owe an actual receipt.
+                # Keep its data ownership until that worker exits; process exit
+                # releases the descriptor and startup then recovers interruption.
+                def release_after_worker():
+                    worker.join()
+                    os.close(descriptor)
+                threading.Thread(target=release_after_worker, daemon=True).start()
+            else:
+                os.close(descriptor)
 
 
 def make_handler(app):

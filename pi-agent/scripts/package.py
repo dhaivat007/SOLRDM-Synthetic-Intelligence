@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 import tarfile
 
-VERSION = '0.9.0'
+VERSION = '0.10.0'
 LLAMA_COMMIT = '8642541b255bfb5dc39cd351a178be09013a55d6'
 
 
@@ -49,6 +49,10 @@ def main():
         'llama_cpp_commit': LLAMA_COMMIT, 'runtime_bundled': runtime.is_file(),
         'engine_module_count': engine_count, 'model_weights_bundled': False,
         'physical_raspberry_pi_tested': False,
+        'subjective_consciousness_verified': False,
+        'model_weights_retrained': False,
+        'upgrade_preserves': ['models', 'settings', 'observations', 'task_history'],
+        'complete_models_release': 'solrdm-pi-v0.9.0-preview',
     }
     files['BUILD-INFO.json'] = (json.dumps(metadata, indent=2).encode() + b'\n', 0o644)
     manifest = ''.join(f'{hashlib.sha256(content).hexdigest()}  {name}\n' for name, (content, mode) in sorted(files.items()))

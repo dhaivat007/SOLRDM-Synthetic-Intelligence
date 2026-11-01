@@ -3,8 +3,13 @@
 The new [Raspberry Pi 5 application](pi-agent/README.md) targets 8 GB devices running
 64-bit Raspberry Pi OS. It provides a local GGUF model library, pretrained language
 and mathematics model downloads, chat, scientific tools, source-linked research,
-and reviewed observation memory. Its [build workflow](.github/workflows/pi-agent.yml)
-verifies native ARM64 inference and an installed application's HTTP chat before
+and reviewed observation memory. Version 0.10 adds live capability reports,
+persistent goals and bounded tool plans, actual execution receipts, and model
+reflections. Plans require explicit Run; interrupted work is never silently retried.
+These operational features do not establish subjective consciousness or retrain
+model weights. Its [build workflow](.github/workflows/pi-agent.yml)
+verifies native ARM64 inference, installed HTTP chat, model-generated plans and
+data preservation when upgrading the published 0.9 app before
 publishing a preview. See the exact run's evidence; physical Pi testing is separate.
 The Pi app uses pretrained models as explicitly requested. The description below
 refers to the earlier Android observation engine.

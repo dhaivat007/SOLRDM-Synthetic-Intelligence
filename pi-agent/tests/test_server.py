@@ -120,6 +120,44 @@ class ServerTests(unittest.TestCase):
         self.assertIn("Load", value["error"])
         self.assertNotIn("text", value)
 
+    def test_grounded_awareness_and_self_report_work_without_model(self):
+        status, state, _ = self.request(path="/api/awareness")
+        self.assertEqual(status, 200)
+        self.assertFalse(state["consciousness"]["verified"])
+        self.assertEqual(state["tasks"]["counts"]["completed"], 0)
+        response = self.request("POST", "/api/chat", {"text": "What can you do?"})
+        self.assertEqual(response[0], 200)
+        self.assertTrue(response[1]["grounded_self_report"])
+        self.assertIn("no local model", response[1]["text"])
+
+    def test_task_api_runs_actual_previously_reviewed_plan_without_model(self):
+        task = self.app.workspace.create("Compute six times seven", [{"name": "calculate",
+            "arguments": {"expression": "6*7"}, "purpose": "Compute"}])
+        status, response, _ = self.request("POST", "/api/tasks/run", {"id": task["id"]})
+        self.assertEqual(status, 200)
+        self.app.tasks.worker.join(3)
+        task = self.request(path="/api/tasks/" + str(task["id"]))[1]["task"]
+        self.assertEqual(task["status"], "completed")
+        self.assertEqual(task["steps"][0]["receipt"]["data"]["result"], 42)
+        summary = self.request(path="/api/tasks")[1]["tasks"][0]
+        self.assertEqual(summary["completed_steps"], 1)
+        self.assertNotIn("steps", summary)
+        self.assertEqual(self.request("POST", "/api/tasks/delete", {"id": task["id"]})[0], 200)
+
+    def test_second_application_cannot_recover_a_live_task(self):
+        task = self.app.workspace.create("Compute", [{"name": "calculate",
+            "arguments": {"expression": "6*7"}, "purpose": "Compute"}])
+        self.app.workspace.start_step(task["id"])
+        with self.assertRaisesRegex(ValueError, "already using"):
+            Application(self.directory.name)
+        self.assertEqual(self.app.workspace.get(task["id"])["steps"][0]["status"], "running")
+        self.app.close()
+        reopened = Application(self.directory.name)
+        try:
+            self.assertEqual(reopened.workspace.get(task["id"])["status"], "interrupted")
+        finally:
+            reopened.close()
+
     def test_memory_round_trip_and_explicit_boolean_review(self):
         status, value, _ = self.request("POST", "/api/memory", {"text": "A user observation", "source": "lab notes"})
         self.assertEqual(status, 200)

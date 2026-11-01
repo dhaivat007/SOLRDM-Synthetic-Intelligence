@@ -15,6 +15,7 @@
     <button class="new-chat" id="new-chat">＋ New conversation</button>
     <nav aria-label="Workspace">
       <button class="nav active" data-view="chat" aria-current="page">◌ <span>Conversation</span></button>
+      <button class="nav" data-view="agent">↗ <span>Agent workspace</span></button>
       <button class="nav" data-view="models">◈ <span>Model library</span></button>
       <button class="nav" data-view="tools">⌁ <span>Scientific tools</span></button>
       <button class="nav" data-view="memory">▤ <span>Observations & memory</span></button>
@@ -30,7 +31,7 @@
     <section class="view" id="view-chat" aria-label="Conversation">
       <div class="setup-banner" id="setup-banner"><div><strong id="setup-title">Checking your model connection</strong><p id="setup-description">Models run on your Pi after you download or attach compatible weights.</p></div><button class="secondary" data-open-view="models">Open model library ↗</button></div>
       <div id="chat-scroll" class="chat-scroll">
-        <div class="welcome" id="welcome"><p class="eyebrow">A LITTLE CURIOSITY GOES A LONG WAY</p><h2>What shall we<br><em>explore?</em></h2><p>Think through a question, review a document, or test an idea. Your local model and transparent tools work together.</p><div class="starters"><button data-prompt="Help me make a practical plan. First ask me about my goal and constraints." data-mode="plan">↗ Make a plan</button><button data-prompt="Help me research a scientific question with sources. Ask me what I want to understand." data-mode="research">◎ Follow a question</button><button data-open-view="tools">⌁ Run an experiment</button></div></div>
+        <div class="welcome" id="welcome"><p class="eyebrow">A LITTLE CURIOSITY GOES A LONG WAY</p><h2>What shall we<br><em>explore?</em></h2><p>Think through a question, review a document, or test an idea. Your local model and transparent tools work together.</p><div class="starters"><button data-open-view="agent">↗ Work toward a goal</button><button data-prompt="Help me research a scientific question with sources. Ask me what I want to understand." data-mode="research">◎ Follow a question</button><button data-open-view="tools">⌁ Run an experiment</button><button id="about-abilities">◌ About my abilities</button></div></div>
         <div id="messages" aria-live="polite" aria-relevant="additions"></div>
         <p id="chat-progress" class="progress" role="status" hidden>Working on your request. CPU inference can take a while on a Pi…</p>
       </div>
@@ -41,6 +42,24 @@
         <p id="document-limits" class="field-help" hidden>Document review uses short excerpts: up to 5,000 characters per file and 7,000 combined; model context may shorten these further. PDFs use text from the first 20 pages. Send relevant sections separately for longer documents.</p>
         <div class="composer-bottom"><label class="file-button" id="attach-label">＋ <span>Attach a file</span><input id="chat-files" type="file" multiple accept=".txt,.md,.csv,.json,.pdf,.png,.jpg,.jpeg,.webp,.mp4,.webm"></label><span id="attachment-note">Text, PDF, image or video</span><button class="primary" id="send-button" type="submit">Send ↑</button></div>
       </form><p class="fine-print">Model answers can be wrong. Tools show their results; saved observations need your review.</p>
+    </section>
+    <section class="view content-view" id="view-agent" hidden aria-label="Agent workspace">
+      <div class="section-intro"><span class="eyebrow">GOALS, ACTIONS & EVIDENCE</span><h2>An agent you can follow</h2><p>Give SOLRDM a goal. Inspect its proposed tool steps, then run the plan and follow the results. Saved goals, operational self-assessment, and reflection help organize work; they do not establish subjective consciousness.</p></div>
+      <div class="panel awareness-panel" id="awareness-panel" tabindex="-1">
+        <div class="section-heading"><h3>About my abilities · live state</h3><button class="text-button" id="refresh-agent">Refresh</button></div>
+        <p id="awareness-description" class="awareness-description">Reading the local service state…</p>
+        <div id="awareness-facts" class="awareness-facts"></div>
+        <details class="awareness-details"><summary>Available tools and current limits</summary><div id="awareness-details"></div></details>
+        <p id="awareness-consciousness" class="field-help">Subjective AI experience is debated. These software functions do not verify consciousness.</p>
+        <p id="agent-refresh-status" class="field-help" role="status">Waiting for a state snapshot.</p>
+      </div>
+      <form class="panel goal-form" id="goal-form">
+        <label for="goal-input">What should SOLRDM work toward?</label><textarea id="goal-input" maxlength="2000" rows="3" required placeholder="For example: calculate an ideal projectile trajectory at 20 m/s and 45°, then find sources about air resistance."></textarea>
+        <div class="goal-submit"><p id="goal-model-status" class="field-help">A loaded model or configured online provider proposes up to six tool steps. No steps run until you choose Run plan.</p><button class="primary" id="plan-goal" type="submit">Create a plan</button></div>
+        <p class="field-help">Each step uses the exact arguments shown in the plan; later steps do not automatically substitute earlier results. Search sends queries to Crossref or Wikipedia. New observations remain unreviewed until you approve them for future recall; this does not train model weights.</p>
+      </form>
+      <div class="section-heading"><h3>Goals & plans</h3><span id="task-count" class="tag">0 saved</span></div>
+      <div class="agent-task-grid"><div id="task-list" class="task-list" aria-label="Saved goals"></div><article id="task-detail" class="panel task-detail" aria-label="Selected plan"><p class="empty">Create a plan above to see its steps and results here.</p></article></div>
     </section>
     <section class="view content-view" id="view-models" hidden aria-label="Model library">
       <div class="section-intro"><span class="eyebrow">WEIGHTS, NOT JUST A CONNECTION</span><h2>Your model library</h2><p>Download a recommended model, select a GGUF file from a drive, or import one from an HTTPS link. Load one local model at a time to keep memory use manageable on your 8 GB Pi.</p></div>

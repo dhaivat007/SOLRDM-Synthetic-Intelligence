@@ -87,6 +87,12 @@ class MemoryStore:
         with self._connect() as db:
             return [dict(row) for row in db.execute("SELECT * FROM observations ORDER BY id DESC LIMIT ?", (limit,))]
 
+    def stats(self):
+        with self._connect() as db:
+            counts = {row[0]: row[1] for row in db.execute("SELECT status,COUNT(*) FROM observations GROUP BY status")}
+        return {**{key: counts.get(key, 0) for key in ("approved", "unreviewed", "rejected")},
+                "total": sum(counts.values())}
+
     def search(self, query, limit=10):
         limit = self._limit(limit)
         if not isinstance(query, str) or not query.strip() or len(query) > 300:

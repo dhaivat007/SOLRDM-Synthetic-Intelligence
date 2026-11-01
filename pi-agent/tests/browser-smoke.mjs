@@ -3,7 +3,7 @@
  * actual downloaded weights separately. Requires playwright@1.56.1 + Chromium.
  */
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -18,7 +18,7 @@ const evidence = join(root, 'evidence');
 const base = 'http://127.0.0.1:19877';
 const dataDir = await mkdtemp(join(tmpdir(), 'solrdm-pi-browser-'));
 const checks = [], pageErrors = [], browserConsoleErrors = [];
-let server, browser, output = '', serverError, activePage, mockedChatRequests = 0;
+let server, browser, output = '', serverError, activePage, mockedChatRequests = 0, realTaskExecutions = 0;
 function record(name) { checks.push(name); console.log(`PASS ${name}`); }
 async function ready() {
   for (let attempt = 0; attempt < 100; attempt++) {
@@ -43,6 +43,17 @@ async function selectView(page, view) { await page.locator(`.nav[data-view="${vi
 
 try {
   await mkdir(evidence, { recursive: true });
+  // Persist explicitly authored fixture plans, not model-generated plans. Startup
+  // must recover the claimed step as interrupted without silently rerunning it.
+  const taskFixtures = JSON.parse(execFileSync('python3', ['-c', `
+import json, sys
+from solrdm_pi.workspace import WorkspaceStore
+store = WorkspaceStore(sys.argv[1])
+interrupted = store.create('Browser QA interrupted calculation', [{'name':'calculate','arguments':{'expression':'6*7'},'purpose':'Check explicit retry after an unknown outcome'}])
+store.start_step(interrupted['id'])
+planned = store.create('Browser QA goal <img src=x onerror="window.xss=true">', [{'name':'calculate','arguments':{'expression':'sqrt(144) + 2**3'},'purpose':'Execute the real calculator and retain its receipt'}])
+print(json.dumps({'planned': planned['id'], 'interrupted': interrupted['id']}))
+`, dataDir], { cwd: root, env: { ...process.env, PYTHONPATH: root }, encoding: 'utf8' }));
   server = spawn('python3', ['-m', 'solrdm_pi', '--data-dir', dataDir, '--port', '19877'], {
     cwd: root, env: { ...process.env, PYTHONPATH: [root, join(repo, 'app/src/main/python'), process.env.PYTHONPATH].filter(Boolean).join(':') }, stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -61,6 +72,44 @@ try {
   assert.equal(await page.locator('#send-button').isDisabled(), true);
   await noOverflow(page);
   record('First run explains missing weights and disables chat until a backend is selected');
+  await page.locator('#about-abilities').click();
+  await page.waitForFunction(() => document.querySelector('#awareness-facts').textContent.includes('No local model loaded'));
+  assert.match(await page.locator('#awareness-description').innerText(), /SOLRDM|tools|model/i);
+  assert.match(await page.locator('#awareness-consciousness').innerText(), /debated.*do not establish consciousness/);
+  await page.locator('#awareness-panel details').evaluate(n => n.open = true);
+  assert.match(await page.locator('#awareness-details').innerText(), /calculate/);
+  await page.locator('#goal-input').fill('Create a model-generated plan');
+  assert.equal(await page.locator('#plan-goal').isDisabled(), true);
+  assert.match(await page.locator('#goal-model-status').innerText(), /Existing tool plans can run without a model/);
+  record('About my abilities reads real service capabilities without a model and does not claim verified consciousness');
+  await page.waitForFunction(id => document.querySelector('#task-detail').dataset.taskId === String(id), taskFixtures.planned);
+  assert.equal(await page.locator('#task-detail').getAttribute('data-task-status'), 'planned');
+  assert.match(await page.locator('.step-arguments pre').innerText(), /sqrt\(144\) \+ 2\*\*3/);
+  assert.equal(await page.locator('#view-agent img').count(), 0);
+  assert.equal(await page.evaluate(() => window.xss), undefined);
+  assert.equal(await page.locator('#task-detail .receipts').count(), 0);
+  await page.locator('[data-task-action="run"]').click();
+  await page.waitForFunction(() => document.querySelector('#task-detail').dataset.taskStatus === 'completed');
+  const taskReceipt = JSON.parse(await page.locator('#task-detail .receipts pre').innerText())[0];
+  assert.equal(taskReceipt.tool, 'calculate'); assert.equal(taskReceipt.status, 'completed'); assert.equal(taskReceipt.data.result, 20); realTaskExecutions++;
+  assert.equal(await page.locator('[data-task-action="reflect"]').isDisabled(), true);
+  await page.reload(); await selectView(page, 'agent');
+  await page.waitForFunction(() => document.querySelector('#task-detail').dataset.taskStatus === 'completed');
+  assert.match(await page.locator('#task-detail .receipts pre').innerText(), /"result": 20/);
+  record('A persisted fixture plan waits for Run plan, executes the actual calculator and preserves its receipt across reload');
+  await page.locator(`.task-choice[data-task-id="${taskFixtures.interrupted}"]`).click();
+  await page.waitForFunction(() => document.querySelector('#task-detail').dataset.taskStatus === 'interrupted');
+  assert.equal(await page.locator('#task-detail').getAttribute('data-task-status'), 'interrupted');
+  assert.match(await page.locator('.task-progress').innerText(), /outcome may be unknown.*retry can repeat/s);
+  assert.equal(await page.locator('#task-detail .receipts').count(), 0);
+  await page.locator('[data-task-action="retry"]').click();
+  await page.waitForFunction(() => document.querySelector('#task-detail').dataset.taskStatus === 'completed');
+  assert.equal(JSON.parse(await page.locator('#task-detail .receipts pre').innerText())[0].data.result, 42); realTaskExecutions++;
+  const attempts = JSON.parse(await page.locator('.step-attempts pre').innerText());
+  assert.equal(attempts.length, 2); assert.equal(attempts[0].status, 'interrupted');
+  await noOverflow(page);
+  await page.screenshot({ path: join(evidence, 'desktop-agent-workspace.png'), fullPage: true });
+  record('Restarted work exposes the interrupted attempt and only executes again after explicit Retry');
   await selectView(page, 'models');
   await page.waitForFunction(() => document.querySelectorAll('.catalog-card').length >= 2);
   assert.match(await page.locator('#catalog').innerText(), /Qwen.*1.5B/s);
@@ -179,10 +228,12 @@ try {
   await selectView(mobile, 'models'); await mobile.waitForFunction(() => document.querySelectorAll('.catalog-card').length >= 2); await noOverflow(mobile);
   await mobile.screenshot({ path: join(evidence, 'mobile-model-library.png'), fullPage: true });
   await selectView(mobile, 'tools'); await noOverflow(mobile);
-  record('Phone-width conversation, model library and scientific tools fit without horizontal overflow');
+  await selectView(mobile, 'agent'); await mobile.waitForFunction(() => document.querySelector('#task-detail').dataset.taskStatus === 'completed'); await noOverflow(mobile);
+  await mobile.screenshot({ path: join(evidence, 'mobile-agent-workspace.png'), fullPage: true });
+  record('Phone-width conversation, model library, scientific tools and agent workspace fit without horizontal overflow');
   assert.deepEqual(pageErrors, []); assert.deepEqual(browserConsoleErrors, []);
   record('No uncaught browser or content-security errors');
-  await writeFile(join(evidence, 'browser-results.json'), JSON.stringify({ checks, pageErrors, browserConsoleErrors, mockedChatRequests, realModelInferenceCalls: 0, fixture: 'GGUF container upload only; not model weights', notes: 'Actual ARM64 model inference is verified by the separate smoke_runtime.py workflow step.' }, null, 2));
+  await writeFile(join(evidence, 'browser-results.json'), JSON.stringify({ checks, pageErrors, browserConsoleErrors, mockedChatRequests, realTaskExecutions, realModelInferenceCalls: 0, fixture: 'GGUF container upload only; not model weights. Task plans were explicitly authored fixtures; their calculator execution and persistence use the real backend.', notes: 'Actual ARM64 model inference is verified by the separate smoke_runtime.py workflow step.' }, null, 2));
   console.log(`${checks.length} browser checks passed; ${mockedChatRequests} mocked chat requests; zero live model inference calls in this browser suite.`);
 } catch (error) {
   const uiState = activePage ? await activePage.evaluate(() => ({ status: document.querySelector('#status-button')?.textContent, feedback: document.querySelector('#feedback')?.textContent, selectedBackend: document.querySelector('#preferred-backend')?.value, settingsBusy: document.querySelector('#settings-form')?.getAttribute('aria-busy'), sendDisabled: document.querySelector('#send-button')?.disabled })).catch(() => null) : null;

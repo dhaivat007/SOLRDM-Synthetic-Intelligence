@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from solrdm_pi.models import ModelManager
 from solrdm_pi.agent import Agent
 from solrdm_pi.memory import MemoryStore
+from solrdm_pi import __version__
 
 MODELS = [
     {
@@ -50,7 +51,12 @@ def verify_calculation_task(task):
         raise AssertionError(f'Application math task did not finish: {task!r}')
     if not re.search(r'(?<!\d)83810205(?!\d)', task['text'].replace(',', '')):
         raise AssertionError(f'Application answer did not report the verified multiplication result: {task!r}')
-    for receipt in task.get('receipts', []):
+    verify_calculation_receipts(task.get('receipts', []))
+
+
+def verify_calculation_receipts(receipts):
+    """Verify actual completed tool evidence independently of generated prose."""
+    for receipt in receipts:
         if receipt.get('tool') != 'calculate' or receipt.get('status') != 'completed':
             continue
         data = receipt.get('data', {})
@@ -67,7 +73,7 @@ def verify_calculation_task(task):
                 and type(expression.right.value) in (int, float)
                 and sorted((expression.left.value, expression.right.value)) == [6789, 12345]):
             return
-    raise AssertionError(f'Real model did not execute 12345 * 6789 with result 83810205: {task!r}')
+    raise AssertionError(f'Real model did not execute 12345 * 6789 with result 83810205: {receipts!r}')
 
 
 def main():
@@ -78,7 +84,10 @@ def main():
     parser.add_argument('--manifest-only', action='store_true')
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
-    (args.output / 'MODEL-MANIFEST.json').write_text(json.dumps(MODELS, indent=2) + '\n')
+    published_models = [dict(model, existing_complete_download=
+        'https://github.com/dhaivat007/SOLRDM-Synthetic-Intelligence/releases/download/'
+        'solrdm-pi-v0.9.0-preview/' + model['file']) for model in MODELS]
+    (args.output / 'MODEL-MANIFEST.json').write_text(json.dumps(published_models, indent=2) + '\n')
     if args.manifest_only:
         return
     results = []
@@ -101,6 +110,7 @@ def main():
             evidence = {
                 'model': model['id'], 'sha256': actual_hash, 'bytes': path.stat().st_size,
                 'status': 'running', 'model_sha256_verified': True,
+                'application_version': __version__,
                 'platform': 'GitHub-hosted ARM64 Linux; not a physical Raspberry Pi',
             }
             results.append(evidence)

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Installs only into the chosen user's directories. Models and history live
+# Installs only into the chosen user's directories. Models, settings, memory and task history live
 # outside the application directory, so replacing the application preserves them.
 source_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 install_dir="${XDG_DATA_HOME:-$HOME/.local/share}/solrdm-pi"
@@ -117,7 +117,7 @@ try:
     (staging / 'runtime/bin/llama-server').chmod(0o755)
     if runtime_rebuilt:
         info_path = staging / 'BUILD-INFO.json'
-        info = json.loads(info_path.read_text()) if info_path.is_file() else {'application': 'SOLRDM Pi Agent', 'version': '0.9.0', 'build_url': None}
+        info = json.loads(info_path.read_text()) if info_path.is_file() else {'application': 'SOLRDM Pi Agent', 'version': '0.10.0', 'build_url': None}
         info.update(runtime_rebuilt_locally=True, llama_cpp_commit='8642541b255bfb5dc39cd351a178be09013a55d6')
         info_path.write_text(json.dumps(info, indent=2) + '\n')
         manifest = []
@@ -157,7 +157,7 @@ desktop_file = desktop / 'solrdm-pi.desktop'
 desktop_file.write_text(entry, encoding='utf-8')
 desktop_file.chmod(0o755)
 print('Installed application:', current)
-print('Private models, settings and memory:', data)
+print('Preserved private models, settings, memory and tasks:', data)
 print('Desktop menu entry:', desktop_file)
 PY
 

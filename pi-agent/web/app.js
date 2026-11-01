@@ -4,7 +4,7 @@
   const token = document.querySelector('meta[name="solrdm-token"]').content;
   const STORAGE_KEY = 'solrdm.pi.conversations.v1';
   const MAX_ATTACHMENTS = 3, MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
-  const state = { view: 'chat', mode: 'chat', conversations: [], current: null, status: null, settings: null, models: [], catalog: [], tools: [], attachments: [], busy: false, preparing: false, jobs: new Map(), jobPollers: new Set(), settingsLoadVersion: 0, polling: false };
+  const state = { view: 'chat', mode: 'chat', conversations: [], current: null, status: null, settings: null, models: [], catalog: [], tools: [], attachments: [], busy: false, preparing: false, jobs: new Map(), jobPollers: new Set(), settingsLoadVersion: 0, polling: false, awareness: null, tasks: [], selectedTask: null, taskDetail: null, taskDetailKey: '', taskDetailLoading: false, agentLoadVersion: 0, agentPolling: false, planning: false, taskAction: false };
   function el(tag, className, text) { const n = document.createElement(tag); if (className) n.className = className; if (text != null) n.textContent = String(text); return n; }
   function button(text, callback, className = 'secondary') { const n = el('button', className, text); n.type = 'button'; n.addEventListener('click', callback); return n; }
   function feedback(message = '', error = false) { $('feedback').textContent = message; $('feedback').classList.toggle('error', error); $('feedback').hidden = !message; }
@@ -21,10 +21,11 @@
   const post = (path, data) => api(path, { method: 'POST', body: JSON.stringify(data) });
   async function formTask(form, task) { const buttons = [...form.querySelectorAll('button')]; buttons.forEach(b => b.disabled = true); try { await task(); } catch (e) { feedback(e.message, true); } finally { buttons.forEach(b => b.disabled = false); } }
   function showView(view) {
-    if (!['chat', 'models', 'tools', 'memory', 'settings'].includes(view)) return;
+    if (!['chat', 'agent', 'models', 'tools', 'memory', 'settings'].includes(view)) return;
     state.view = view; document.querySelectorAll('.view').forEach(n => n.hidden = n.id !== `view-${view}`);
     document.querySelectorAll('.nav').forEach(n => { n.classList.toggle('active', n.dataset.view === view); if (n.dataset.view === view) n.setAttribute('aria-current', 'page'); else n.removeAttribute('aria-current'); });
-    $('page-title').textContent = { chat: 'Conversation', models: 'Model library', tools: 'Scientific tools', memory: 'Observations & memory', settings: 'Settings & diagnostics' }[view];
+    $('page-title').textContent = { chat: 'Conversation', agent: 'Agent workspace', models: 'Model library', tools: 'Scientific tools', memory: 'Observations & memory', settings: 'Settings & diagnostics' }[view];
+    if (view === 'agent') refreshAgent().catch(agentRefreshError);
     if (view === 'models') Promise.all([refreshModels(), loadJobs()]).catch(e => feedback(e.message, true));
     if (view === 'memory') refreshMemory().catch(e => feedback(e.message, true));
     if (view === 'settings') Promise.all([loadSettings(), refreshDiagnostics()]).catch(e => feedback(e.message, true));
@@ -108,7 +109,7 @@
     $('setup-title').textContent = ready ? online ? 'Online provider configured — requests leave this Pi' : 'Local model is ready for conversation' : m.state === 'loading' || m.state === 'starting' ? 'Loading model weights into memory' : 'Add and load a model to start chatting';
     $('setup-description').textContent = ready ? online ? 'A configured key is not a successful connection test. The first chat verifies provider access. Images need a vision-capable model.' : 'Local inference runs on this Pi. Research tools send search queries to Crossref and Wikipedia. Images and video need an online vision model.' : m.error || 'Open Model library, download or attach a GGUF file, then choose Load. Scientific tools work before a model is connected.';
     $('runtime-status').textContent = m.runtime_available ? `llama-server found. ${m.ready ? 'A model is loaded.' : 'Ready to load compatible GGUF weights.'}` : 'llama-server was not found. Install the complete ARM64 package, or run ./install.sh --build-runtime from a source checkout. See the included README for build prerequisites.'; $('runtime-status').classList.toggle('error-text', !m.runtime_available);
-    chatControls(); if (state.view === 'models') renderModels();
+    chatControls(); goalControls(); if (state.view === 'models') renderModels();
   }
   async function refreshModels() { const [list, catalog] = await Promise.all([api('/api/models'), api('/api/catalog')]); state.models = list.models || []; state.catalog = catalog.models || []; renderModels(); renderCatalog(); }
   function renderModels() { const parent = $('model-list'); parent.replaceChildren(); if (!state.models.length) { parent.append(el('p', 'empty', 'No models attached yet. Download a recommended model above or select your own GGUF file.')); return; } const status = state.status?.models || {}; for (const m of state.models) { const row = el('div', 'model-row'), info = el('div', 'model-info'); info.append(el('strong', '', m.name || m.id), el('small', '', `${m.role || 'language'} · ${bytes(m.size_bytes ?? m.size)}${status.model_id === m.id ? ` · ${status.state}` : ''}`)); const d = el('details'); d.append(el('summary', '', 'File & checksum'), el('p', '', m.path || 'Managed library file'), el('p', '', `SHA-256: ${m.sha256 || 'not reported'}`)); info.append(d); row.append(info); const active = status.model_id === m.id && !['stopped', 'error', 'idle'].includes(status.state); const b = button(active ? 'Unload' : 'Load model', async () => { b.disabled = true; try { if (state.busy) throw new Error('Wait for the current response before changing models.'); const result = await post(active ? '/api/models/stop' : '/api/models/start', active ? {} : { model_id: m.id }); if (!active) feedback(result.error || 'Loading the model. The status will change to Ready after a successful health check.', !!result.error); await refreshStatus(); } catch (e) { feedback(e.message, true); } finally { b.disabled = false; } }); row.append(b); parent.append(row); } }
@@ -189,6 +190,121 @@
   function renderToolFields() { const t = state.tools.find(t => t.name === $('tool-select').value); $('tool-fields').replaceChildren(); if (!t) { $('run-tool').disabled = true; return; } $('run-tool').disabled = false; $('tool-description').textContent = t.description || ''; const props = t.parameters?.properties || {}; for (const [name, p] of Object.entries(props)) { const label = el('label', '', name.replaceAll('_', ' ')); let field; if (p.type === 'array' || p.type === 'object') { field = el('textarea'); field.rows = 3; field.value = JSON.stringify(toolDefaults[t.name]?.[name] ?? (p.type === 'array' ? [] : {})); } else { field = el('input'); field.type = p.type === 'number' || p.type === 'integer' ? 'number' : p.type === 'boolean' ? 'checkbox' : 'text'; if (field.type === 'number') { field.step = p.type === 'integer' ? '1' : 'any'; if (p.minimum !== undefined) field.min = p.minimum; if (p.maximum !== undefined) field.max = p.maximum; } if (field.type === 'checkbox') field.checked = toolDefaults[t.name]?.[name] === true; else field.value = toolDefaults[t.name]?.[name] ?? ''; } field.name = name; field.dataset.type = p.type; field.required = (t.parameters?.required || []).includes(name) && p.type !== 'boolean' && name !== 'query'; label.append(field); if (p.description) label.append(el('span', 'field-help', p.description)); $('tool-fields').append(label); } }
   async function runTool(event) { event.preventDefault(); await formTask(event.currentTarget, async () => { const args = {}; for (const input of $('tool-fields').querySelectorAll('input,textarea,select')) { const type = input.dataset.type; if (type === 'array' || type === 'object') { try { args[input.name] = JSON.parse(input.value); } catch { throw new Error(`${input.name} must be valid JSON, for example [1, 2, 3].`); } } else if (type === 'boolean') args[input.name] = input.checked; else if (type === 'number' || type === 'integer') { args[input.name] = Number(input.value); if (!Number.isFinite(args[input.name])) throw new Error(`${input.name} must be a finite number.`); } else args[input.name] = input.value; } $('tool-result').replaceChildren(el('p', 'muted', 'Running tool…')); const result = await post('/api/tools', { name: $('tool-select').value, args }); const receipt = result.receipt || result; $('tool-result').replaceChildren(el('p', 'tool-result-summary', receipt.summary || receipt.status)); if (Array.isArray(receipt.assumptions)) for (const assumption of receipt.assumptions) $('tool-result').append(el('p', 'muted', assumption)); appendSources($('tool-result'), receipt.sources); appendSimulation($('tool-result'), receipt); $('tool-result').append(el('pre', '', JSON.stringify(receipt.data ?? receipt, null, 2))); feedback('Tool finished. Inspect the result and assumptions.'); }); }
   async function refreshMemory() { const data = await api('/api/memory'); const items = data.items || data.observations || []; $('memory-list').replaceChildren(); if (!items.length) { $('memory-list').append(el('p', 'empty', 'No observations saved yet. Add one above or ask the agent to remember something for review.')); return; } for (const m of items) { const row = el('article', 'memory-item'); const approved = m.approved === true || m.status === 'approved'; row.append(el('span', 'tag', approved ? 'Reviewed · approved' : m.status === 'rejected' ? 'Rejected' : 'Awaiting review'), el('p', '', m.text || m.content || ''), el('small', '', `Source: ${m.source || 'not recorded'}`)); if (!approved) row.append(button('Approve for recall', async () => { try { await post('/api/memory/review', { id: m.id, approved: true }); await refreshMemory(); feedback('Observation approved for recall. Approval is your review decision, not independent proof.'); } catch (e) { feedback(e.message, true); } })); if (m.status !== 'rejected') row.append(button(approved ? 'Revoke approval' : 'Reject', async () => { try { await post('/api/memory/review', { id: m.id, approved: false }); await refreshMemory(); } catch (e) { feedback(e.message, true); } }, 'text-button')); row.append(button('Delete', async () => { if (!confirm('Delete this saved observation? This cannot be undone.')) return; try { await post('/api/memory/delete', { id: m.id }); await refreshMemory(); } catch (e) { feedback(e.message, true); } }, 'text-button')); $('memory-list').append(row); } }
+  const taskStatusLabels = { planned: 'Ready to run', running: 'Running', paused: 'Paused', cancelled: 'Cancelled', completed: 'Completed', failed: 'Failed', interrupted: 'Interrupted', pending: 'Pending' };
+  function taskStatus(status) { return taskStatusLabels[status] || 'Unknown state'; }
+  function statusTag(status) { return el('span', `tag task-status ${Object.hasOwn(taskStatusLabels, status) ? status : ''}`, taskStatus(status)); }
+  function modelAvailable() { return (state.status?.preferred_backend || state.settings?.preferred_backend) === 'provider' ? state.status?.provider?.configured === true : state.status?.models?.ready === true; }
+  function goalControls() {
+    $('plan-goal').disabled = state.planning || state.busy || state.taskAction || !modelAvailable() || !$('goal-input').value.trim();
+    $('plan-goal').textContent = state.planning ? 'Creating plan…' : 'Create a plan';
+    $('goal-input').disabled = state.planning;
+    $('goal-form').setAttribute('aria-busy', String(state.planning));
+    $('goal-model-status').textContent = state.planning ? 'The model is proposing a bounded tool plan. CPU inference can take a while on the Pi. This proposed plan has not run any tools.' : modelAvailable() ? 'The selected model can propose up to six tool steps. A configured online provider still needs a successful request. No steps run until you choose Run plan.' : 'Load a model in Model library, or configure an online provider in Settings to create a plan. Existing tool plans can run without a model.';
+  }
+  function addFact(parent, title, value, detail) { const card = el('div', 'awareness-fact'); card.append(el('span', 'eyebrow', title), el('strong', '', value), el('span', 'field-help', detail)); parent.append(card); }
+  function reportedCount(value) { return Number.isInteger(value) && value >= 0 ? String(value) : 'unknown'; }
+  function renderAwareness() {
+    const a = state.awareness; if (!a) return;
+    const local = a.local_model || {}, provider = a.provider || {}, memory = a.memory || {}, tasks = a.tasks || {};
+    $('awareness-description').textContent = a.description || 'This report comes from the service’s current model connection, tool inventory, reviewed notebook and saved task records.';
+    const facts = $('awareness-facts'); facts.replaceChildren();
+    addFact(facts, 'Selected model', a.backend === 'provider' ? provider.model_name || 'No provider model' : local.model_name || 'No local model loaded', a.backend === 'provider' ? provider.configured ? 'Online provider configured · access is not verified by this status report' : 'Online provider needs setup' : local.ready ? 'Local runtime reports ready' : `Local runtime: ${local.state || 'not ready'}`);
+    addFact(facts, 'Reviewed memory', memory.available ? `${reportedCount(memory.approved)} approved` : 'Unavailable', memory.available ? `${reportedCount(memory.unreviewed)} awaiting review · changes future context, not model weights` : 'The notebook could not be read.');
+    addFact(facts, 'Saved work', tasks.available ? `${reportedCount(tasks.total)} goals` : 'Unavailable', tasks.available ? `${reportedCount(tasks.counts?.running)} running · ${reportedCount(tasks.counts?.completed)} completed · ${reportedCount(tasks.counts?.interrupted)} interrupted` : 'The task store could not be read.');
+    const detail = $('awareness-details'); detail.replaceChildren();
+    detail.append(el('p', 'muted', 'These are operational capabilities reported by the running service. Model answers and reflections can still be mistaken.'));
+    const list = el('ul', 'capability-list'); for (const name of a.capabilities?.tools || []) list.append(el('li', '', `${toolLabels[name] || name} (${name})`)); detail.append(list);
+    detail.append(el('p', 'muted', `Online search sources: ${(a.capabilities?.online_sources || []).join(', ') || 'none reported'}. Local GGUF profiles accept text. Images and sampled video frames require a configured online vision model.`));
+    detail.append(el('p', 'muted', 'Actions are limited to the available tools. The agent does not operate physical devices, run arbitrary commands, or retrain its conversational model from chats. A saved or approved observation is not independently verified evidence.'));
+    $('awareness-consciousness').textContent = a.consciousness?.assessment || a.consciousness?.description || 'Subjective AI experience is debated. These software functions do not verify consciousness.';
+  }
+  function agentRefreshError(error) { $('agent-refresh-status').textContent = `Could not refresh live state: ${error.message}. Previously displayed state may be out of date.`; $('agent-refresh-status').classList.add('error-text'); }
+  async function refreshAgent() {
+    const version = ++state.agentLoadVersion;
+    const [awareness, result] = await Promise.all([api('/api/awareness'), api('/api/tasks')]);
+    if (version !== state.agentLoadVersion) return;
+    state.awareness = awareness; state.tasks = Array.isArray(result.tasks) ? result.tasks : [];
+    if (!state.tasks.some(t => t.id === state.selectedTask)) state.selectedTask = state.tasks[0]?.id ?? null;
+    const summary = state.tasks.find(t => t.id === state.selectedTask);
+    if (!summary) state.taskDetail = null;
+    else if (state.taskDetail?.id !== summary.id || state.taskDetail.updated_at !== summary.updated_at) {
+      const detail = await api(`/api/tasks/${summary.id}`);
+      if (version !== state.agentLoadVersion) return;
+      state.taskDetail = detail.task;
+    }
+    state.taskDetailLoading = false;
+    renderAwareness(); renderTaskList(); renderTaskDetail(); goalControls();
+    $('agent-refresh-status').classList.remove('error-text'); $('agent-refresh-status').textContent = `Live state read at ${new Date().toLocaleTimeString()}. Refreshes while this view is open.`;
+  }
+  function renderTaskList() {
+    const parent = $('task-list'), focused = document.activeElement?.dataset?.taskId; parent.replaceChildren(); $('task-count').textContent = `${state.tasks.length} saved`;
+    if (!state.tasks.length) { parent.append(el('p', 'empty', 'No saved goals yet. Your plans and tool results will be kept on this Pi.')); return; }
+    for (const task of state.tasks) {
+      const row = button('', () => selectTask(task.id), `task-choice${task.id === state.selectedTask ? ' selected' : ''}`);
+      row.dataset.taskId = String(task.id); row.setAttribute('aria-pressed', String(task.id === state.selectedTask));
+      row.append(statusTag(task.status), el('strong', '', task.label || task.goal), el('span', 'field-help', `${reportedCount(task.completed_steps)} of ${reportedCount(task.step_count)} steps completed`)); parent.append(row);
+    }
+    if (focused) [...parent.querySelectorAll('[data-task-id]')].find(n => n.dataset.taskId === focused)?.focus({ preventScroll: true });
+  }
+  async function selectTask(id) {
+    if (state.selectedTask === id && state.taskDetail?.id === id) return;
+    const version = ++state.agentLoadVersion; state.selectedTask = id; state.taskDetail = null; state.taskDetailLoading = true; renderTaskList(); renderTaskDetail();
+    try { const result = await api(`/api/tasks/${id}`); if (version !== state.agentLoadVersion) return; state.taskDetail = result.task; }
+    catch (error) { if (version === state.agentLoadVersion) agentRefreshError(error); }
+    finally { if (version === state.agentLoadVersion) { state.taskDetailLoading = false; renderTaskDetail(); } }
+  }
+  function taskButton(label, action, task, className = 'secondary') { const b = button(label, () => performTaskAction(action, task.id), className); b.disabled = state.taskAction; b.dataset.taskAction = action; return b; }
+  function renderTaskDetail() {
+    const task = state.taskDetail, key = JSON.stringify([task?.id, task?.updated_at, state.selectedTask, state.taskAction, state.taskDetailLoading, modelAvailable()]); if (key === state.taskDetailKey) return; state.taskDetailKey = key;
+    const parent = $('task-detail'); parent.replaceChildren();
+    if (!task) { delete parent.dataset.taskId; delete parent.dataset.taskStatus; parent.append(el('p', 'empty', state.taskDetailLoading ? 'Loading the saved plan and its tool results…' : state.selectedTask !== null ? 'The selected plan is unavailable. Refresh live state to try again.' : 'Create a plan above to see its steps and results here.')); return; }
+    parent.dataset.taskId = String(task.id); parent.dataset.taskStatus = task.status;
+    const heading = el('div', 'task-heading'); heading.append(statusTag(task.status), el('span', 'field-help', `Goal #${task.id}`)); parent.append(heading, el('h3', 'task-goal', task.goal));
+    const running = (task.steps || []).find(s => s.status === 'running');
+    const statusText = task.status === 'planned' ? 'Plan proposed. Inspect each tool and its arguments, then choose Run plan to execute these steps.' : task.status === 'running' ? `Executing ${running ? `step ${running.index + 1}: ${running.name}` : 'the plan'}. Pause or cancel takes effect after any active tool finishes.` : task.status === 'completed' ? 'All tool steps have completed. Inspect the receipts before relying on their results; tool completion does not prove the broader goal was achieved.' : task.status === 'interrupted' ? 'Execution was interrupted. The last action’s outcome may be unknown. Inspect its attempt history before retrying; a retry can repeat a prior action.' : task.status === 'failed' ? 'A tool step failed. Inspect its receipt before retrying the failed step.' : task.status === 'paused' ? 'No new steps will start while paused. An already active tool may finish and save its receipt.' : 'No new steps will start for this cancelled plan. An already active tool may finish and save its receipt.';
+    const status = el('p', 'task-progress', statusText); status.setAttribute('role', 'status'); parent.append(status);
+    const controls = el('div', 'task-actions');
+    if (task.status === 'planned') controls.append(taskButton('Run plan', 'run', task, 'primary'));
+    if (task.status === 'running') controls.append(taskButton('Pause after current step', 'pause', task));
+    if (task.status === 'paused' && !running) controls.append(taskButton('Resume plan', 'resume', task, 'primary'));
+    if (['failed', 'interrupted'].includes(task.status)) controls.append(taskButton(task.status === 'interrupted' ? 'Retry interrupted step' : 'Retry failed step', 'retry', task));
+    if (['planned', 'running', 'paused', 'failed', 'interrupted'].includes(task.status)) controls.append(taskButton('Cancel plan', 'cancel', task, 'text-button'));
+    if (!running && task.status !== 'planned') { const reflect = taskButton('Reflect on results', 'reflect', task); reflect.disabled ||= !modelAvailable(); reflect.title = modelAvailable() ? 'Ask the selected model to analyze this plan and its recorded results' : 'Load a model or configure a provider to analyze the recorded results'; controls.append(reflect); }
+    if (!running && task.status !== 'running') controls.append(taskButton('Delete saved plan', 'delete', task, 'text-button'));
+    parent.append(controls);
+    const steps = el('ol', 'plan-steps');
+    for (const step of task.steps || []) {
+      const item = el('li', 'plan-step'), title = el('div', 'step-heading'); title.append(el('strong', '', `${step.index + 1}. ${step.name}`), statusTag(step.status)); item.append(title, el('p', '', step.purpose || 'No purpose provided.'));
+      const args = el('details', 'step-arguments'); args.open = task.status === 'planned'; args.append(el('summary', '', 'Tool arguments'), el('pre', '', JSON.stringify(step.arguments || {}, null, 2))); item.append(args);
+      if (step.receipt) { const receipt = step.receipt; item.append(el('p', receipt.status === 'failed' ? 'error-text' : 'tool-result-summary', receipt.summary || `Tool ${receipt.status || 'result'}`)); if (Array.isArray(receipt.assumptions)) for (const assumption of receipt.assumptions) item.append(el('p', 'field-help', assumption)); appendSources(item, receipt.sources); appendReceipts(item, [receipt]); }
+      if (Array.isArray(step.attempts) && step.attempts.length) { const attempts = el('details', 'step-attempts'); attempts.append(el('summary', '', `${step.attempts.length} recorded attempt${step.attempts.length === 1 ? '' : 's'}`), el('pre', '', JSON.stringify(step.attempts, null, 2))); item.append(attempts); }
+      steps.append(item);
+    }
+    parent.append(steps);
+    if (task.reflection) {
+      const r = task.reflection, box = el('section', 'task-reflection'); box.append(el('h4', '', 'Reflection · model analysis'), el('p', 'field-help', 'This is a model’s interpretation of recorded work, not verified knowledge or evidence of subjective experience. Reflection does not change model weights.'), el('p', 'reflection-summary', r.summary || 'No summary returned.'));
+      for (const [label, values] of [['Uncertainties', r.uncertainties], ['Suggested next steps', r.next_steps]]) { box.append(el('h5', '', label)); const list = el('ul'); for (const value of Array.isArray(values) ? values : []) list.append(el('li', '', value)); if (!list.childNodes.length) list.append(el('li', '', 'None reported by the model.')); box.append(list); }
+      if ((task.reflections || []).length > 1) box.append(el('p', 'field-help', `Showing the latest of ${task.reflections.length} saved reflections.`)); parent.append(box);
+    }
+  }
+  async function planGoal(event) {
+    event.preventDefault(); if (state.planning || !modelAvailable()) return;
+    const goal = $('goal-input').value.trim(); if (!goal) return; state.planning = true; goalControls(); feedback();
+    try { const result = await post('/api/tasks/plan', { goal }); state.selectedTask = result.task.id; $('goal-input').value = ''; await refreshAgent(); feedback('Plan saved. Inspect the proposed tools and arguments before choosing Run plan.'); }
+    catch (error) { feedback(error.message, true); }
+    finally { state.planning = false; goalControls(); }
+  }
+  async function performTaskAction(action, id) {
+    if (action === 'delete' && !confirm('Delete this saved plan, its tool receipts and reflections? This cannot be undone.')) return;
+    if (state.taskAction) return; state.taskAction = true; renderTaskDetail(); goalControls();
+    feedback(action === 'reflect' ? 'The model is analyzing the saved plan and its tool receipts…' : 'Updating the plan…');
+    try {
+      const result = await post(`/api/tasks/${action}`, { id });
+      if (result.task) { state.taskDetail = result.task; state.tasks = state.tasks.map(t => t.id === id ? result.task : t); }
+      await refreshAgent(); feedback(action === 'delete' ? 'Saved plan and its execution records deleted.' : action === 'reflect' ? 'Reflection saved as model analysis. Inspect uncertainties and suggestions.' : action === 'run' || action === 'resume' || action === 'retry' ? 'Plan execution requested. Live state and tool receipts show what actually happens.' : action === 'pause' ? 'Pause requested. An active tool may finish before the plan stops.' : 'Cancellation requested. An active tool may finish before the plan stops.');
+    } catch (error) { feedback(error.message, true); }
+    finally { state.taskAction = false; renderTaskDetail(); goalControls(); }
+  }
   document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => showView(b.dataset.view)));
   document.querySelectorAll('[data-open-view]').forEach(b => b.addEventListener('click', () => showView(b.dataset.openView)));
   document.querySelectorAll('#modes [data-mode]').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
@@ -200,8 +316,11 @@
   $('cloud-form').addEventListener('submit', event => { event.preventDefault(); formTask(event.currentTarget, async () => { const url = new URL($('model-url').value); if (url.protocol !== 'https:') throw new Error('Cloud imports require a direct HTTPS URL.'); const job = await post('/api/models/import', { url: url.href, name: '', sha256: $('model-sha').value.trim(), role: 'language' }); trackJob(job, url.pathname.split('/').pop() || 'Cloud model'); feedback('Download started. The file is checked before it is added to the library.'); }); });
   $('settings-form').addEventListener('submit', saveSettings); $('refresh-diagnostics').addEventListener('click', () => refreshDiagnostics().catch(e => feedback(e.message, true))); $('tool-select').addEventListener('change', renderToolFields); $('tool-form').addEventListener('submit', runTool);
   $('engine-command').addEventListener('change', engineFields); $('engine-form').addEventListener('submit', runEngine);
+  $('about-abilities').addEventListener('click', () => { showView('agent'); $('awareness-panel').focus({ preventScroll: true }); });
+  $('refresh-agent').addEventListener('click', () => refreshAgent().catch(agentRefreshError)); $('goal-form').addEventListener('submit', planGoal); $('goal-input').addEventListener('input', goalControls);
   $('refresh-memory').addEventListener('click', () => refreshMemory().catch(e => feedback(e.message, true))); $('memory-form').addEventListener('submit', event => { event.preventDefault(); formTask(event.currentTarget, async () => { await post('/api/memory', { text: $('memory-text').value.trim(), source: $('memory-source').value.trim() }); $('memory-text').value = ''; await refreshMemory(); feedback('Observation saved for your review. It is not approved for recall yet.'); }); });
-  loadConversations(); chatControls();
+  loadConversations(); chatControls(); goalControls();
   Promise.allSettled([refreshStatus(), refreshModels(), loadTools(), loadSettings(), loadJobs()]).then(results => { const failed = results.find(r => r.status === 'rejected'); if (failed) feedback(failed.reason.message, true); });
   setInterval(async () => { if (state.polling || document.hidden) return; state.polling = true; try { await refreshStatus(); } catch (e) { $('status-button').textContent = 'Service unavailable'; $('status-button').classList.remove('ready'); $('status-button').classList.add('error'); } finally { state.polling = false; } }, 5000);
+  setInterval(async () => { if (state.agentPolling || state.view !== 'agent' || document.hidden || state.taskAction) return; state.agentPolling = true; try { await refreshAgent(); } catch (error) { agentRefreshError(error); } finally { state.agentPolling = false; } }, 2500);
 })();

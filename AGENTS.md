@@ -9,6 +9,8 @@ The Android app now includes all 16 Python modules from the user-supplied v0.7 s
 ## Raspberry Pi agent
 The user explicitly authorized pretrained models for conversation and file understanding. The separate `pi-agent/` application targets Raspberry Pi 5 with 8 GB RAM and 64-bit Raspberry Pi OS; the original SOLRDM observation engine remains distinct. Local GGUF models, optional online providers, research tools, and reviewed notebook memory must have honest capability and connection status. Bundle model provenance and licenses, verify complete weight checksums, and run real ARM64 inference and installed HTTP chat before publishing a preview. Native ARM64 CI is not physical Raspberry Pi verification. Memory review is not independent factual validation or automatic retraining.
 
+The operational self-model reports live software state; it is not evidence of subjective consciousness. Persisted plans run only after explicit Run, with at most six validated existing tool steps. Record actual receipts, preserve interruption/unknown outcomes, and never silently retry interrupted side effects. Reflections are generated suggestions, not factual validation, notebook approval, or model weight training. Hold the data-directory ownership lock before recovering task state.
+
 ## Immediate steps
 1. Inspect Gradle, Android Gradle Plugin, Chaquopy repositories, Android SDK, and workflow. Run the GitHub Actions equivalent build in a cloud development environment.
 2. Fix actual compilation failures; retain error logs and document root causes.
