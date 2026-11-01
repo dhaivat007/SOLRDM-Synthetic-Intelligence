@@ -59,8 +59,8 @@ TOOL_DEFINITIONS = [
         "text": _text("Observation or preference to remember, with uncertainty explicit.", 4000),
         "source": _text("Source URL or description; use 'conversation' when derived from chat.", 500),
     }),
-    _definition("recall_observations", "Find up to ten local observations. Preserve their review status: stored statements and user approval do not prove factual correctness.", {
-        "query": _text("Literal phrase to find in observation text or sources."),
+    _definition("recall_observations", "Find up to ten user-approved local observations by keyword overlap. Unreviewed and rejected records are excluded. User approval is not proof of factual correctness.", {
+        "query": _text("Words describing the approved observation to recall; matching is lexical, not semantic."),
     }),
 ]
 
@@ -370,8 +370,8 @@ def execute_tool(name, arguments, *, memory=None, fetch_json=None):
             else:
                 _fields(arguments, ("query",))
                 query = _label(arguments["query"], 300)
-                data = {"query": query, "observations": memory.search(query, 10)}
-                summary = f"Found {len(data['observations'])} local observations."
+                data = {"query": query, "observations": memory.relevant(query, limit=10)}
+                summary = f"Found {len(data['observations'])} user-approved local observations."
         except ValueError as error:
             raise ToolError(str(error)) from None
         return _receipt(name, summary, data, [

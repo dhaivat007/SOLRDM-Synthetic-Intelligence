@@ -13,6 +13,7 @@ import urllib.parse
 import urllib.request
 
 from .tools import TOOL_DEFINITIONS, ToolError, execute_tool
+from .models import ModelReply
 
 
 class AgentError(ValueError):
@@ -54,10 +55,11 @@ def call_provider(settings, messages, max_tokens=600, opener=None):
             raw = response.read(2_000_001)
         if len(raw) > 2_000_000:
             raise AgentError("Model response exceeds the response limit.")
-        content = json.loads(raw)["choices"][0]["message"]["content"]
+        choice = json.loads(raw)["choices"][0]
+        content = choice["message"]["content"]
         if not isinstance(content, str) or not content.strip():
             raise AgentError("The model returned no text. Check model and endpoint compatibility.")
-        return content.strip()
+        return ModelReply(content.strip(), incomplete=choice.get("finish_reason") in ("length", "content_filter"))
     except urllib.error.HTTPError as exc:
         # Never echo a provider response body; it can include request data or secrets.
         raise AgentError(f"Model provider returned HTTP {exc.code}. Check the API URL, key, model, and account quota.") from None
@@ -302,6 +304,9 @@ class Agent:
                 if not receipts:
                     raise AgentError(str(exc)[:600]) from None
                 return {"text": "The model could not complete its answer. Tool results below were retained. " + str(exc)[:400],
+                        "receipts": receipts, "sources": sources, "model": model_name, "incomplete": True}
+            if getattr(answer, "incomplete", False):
+                return {"text": str(answer) + "\n\n[The model stopped before finishing. Ask for a shorter answer or continue in a follow-up.]",
                         "receipts": receipts, "sources": sources, "model": model_name, "incomplete": True}
             raw = answer.strip()
             if raw.startswith("```json") and raw.endswith("```"):

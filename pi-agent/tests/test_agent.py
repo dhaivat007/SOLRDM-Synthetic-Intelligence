@@ -10,6 +10,7 @@ from urllib.error import HTTPError
 
 from solrdm_pi.agent import Agent, AgentError, attachment_content, call_provider, provider_endpoint
 from solrdm_pi.memory import MemoryStore
+from solrdm_pi.models import ModelReply
 
 
 class AgentTests(unittest.TestCase):
@@ -36,6 +37,13 @@ class AgentTests(unittest.TestCase):
         with self.assertRaisesRegex(AgentError, "Load"):
             self.agent.run({"text": "hello"})
         self.models.chat.assert_not_called()
+
+    def test_truncated_model_answer_is_incomplete_and_never_executes_partial_action(self):
+        self.models.chat.return_value = ModelReply('{"tool":"calculate","arguments":{"expression":"2+2"}}', incomplete=True)
+        result = self.agent.run({"text": "Calculate 2+2", "mode": "math"})
+        self.assertTrue(result["incomplete"])
+        self.assertEqual(result["receipts"], [])
+        self.assertIn("stopped before finishing", result["text"])
 
     def test_tool_loop_executes_actual_calculator(self):
         self.models.chat.side_effect = ['{"tool":"calculate","arguments":{"expression":"sqrt(81)+1"}}', "The calculation returned 10."]

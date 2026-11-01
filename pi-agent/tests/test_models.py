@@ -254,6 +254,16 @@ class ModelTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "invalid answer"):
                     self.manager.chat([{"role": "user", "content": "Hello"}])
 
+    def test_chat_preserves_incomplete_finish_reasons(self):
+        self.manager._state = "ready"
+        for reason, incomplete in (("length", True), ("content_filter", True), ("stop", False), (None, False)):
+            response = {"choices": [{"message": {"content": "Partial or complete text"}, "finish_reason": reason}]}
+            with patch.object(self.manager, "_runtime_json", return_value=response):
+                answer = self.manager.chat([{"role": "user", "content": "Hello"}])
+            self.assertIsInstance(answer, str)
+            self.assertEqual(answer, "Partial or complete text")
+            self.assertEqual(answer.incomplete, incomplete)
+
 
 class DownloadNetworkTests(unittest.TestCase):
     def test_urls_reject_credentials_schemes_and_nonstandard_ports(self):

@@ -112,7 +112,13 @@ class ToolTests(unittest.TestCase):
             self.assertEqual(result["data"]["status"], "unreviewed")
             self.assertEqual(result["data"]["origin"], "model")
             found = execute_tool("recall_observations", {"query": "warm"}, memory=memory)
-            self.assertEqual(found["data"]["observations"][0]["status"], "unreviewed")
+            self.assertEqual(found["data"]["observations"], [])
+            memory.review(result["data"]["id"], True)
+            found = execute_tool("recall_observations", {"query": "What do we know about the warm sample?"}, memory=memory)
+            self.assertEqual(found["data"]["observations"][0]["status"], "approved")
+            self.assertEqual(found["data"]["observations"][0]["source"], "conversation")
+            memory.review(result["data"]["id"], False)
+            self.assertEqual(execute_tool("recall_observations", {"query": "warm"}, memory=memory)["data"]["observations"], [])
             with self.assertRaises(ToolError):
                 execute_tool("remember_observation", {"text": "x", "source": "x", "approved": True}, memory=memory)
             with self.assertRaises(ToolError):

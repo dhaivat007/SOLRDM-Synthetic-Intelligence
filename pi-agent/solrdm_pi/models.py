@@ -26,6 +26,16 @@ from urllib.request import Request, build_opener, ProxyHandler, HTTPRedirectHand
 
 MAX_MODEL_BYTES = 6 * 1024 ** 3
 MAX_UPLOAD_CHUNK = 8 * 1024 ** 2
+
+
+class ModelReply(str):
+    """A normal string that also records provider-reported incomplete output."""
+    def __new__(cls, text, incomplete=False):
+        reply = super().__new__(cls, text)
+        reply.incomplete = bool(incomplete)
+        return reply
+
+
 CATALOG = [
     {"id": "qwen25-language-1.5b", "name": "Qwen 2.5 Instruct 1.5B · language",
      "role": "language", "size": 1117320736, "license": "Apache-2.0",
@@ -590,6 +600,6 @@ class ModelManager:
                 raise ValueError("The model returned an empty answer.")
             if len(answer) > 100000:
                 raise ValueError("The model returned an oversized answer.")
-            return answer.strip()
+            return ModelReply(answer.strip(), incomplete=choices[0].get("finish_reason") in {"length", "content_filter"})
         finally:
             self._chat_lock.release()

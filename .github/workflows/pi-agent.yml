@@ -19,6 +19,31 @@ defaults:
     shell: bash
 
 jobs:
+  supersede:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Prevent an older publication candidate from publishing after new fixes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess, urllib.parse
+          repo, branch = os.environ['GITHUB_REPOSITORY'], os.environ['GITHUB_REF_NAME']
+          endpoint = f'repos/{repo}/actions/workflows/pi-agent.yml/runs?branch={urllib.parse.quote(branch, safe="")}&per_page=20'
+          runs = json.loads(subprocess.check_output(['gh', 'api', endpoint]))['workflow_runs']
+          for run in runs:
+              if (run['id'] < int(os.environ['GITHUB_RUN_ID']) and run['head_branch'] == branch
+                      and run['status'] in ('queued', 'in_progress')
+                      and '[publish-pi]' in (run.get('head_commit') or {}).get('message', '')):
+                  subprocess.run(['gh', 'api', '--method', 'POST', f'repos/{repo}/actions/runs/{run["id"]}/cancel'], check=True)
+                  print(f'Cancelled superseded publication candidate {run["id"]}')
+          PY
+
   tests:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -195,7 +220,7 @@ jobs:
           retention-days: 30
 
   publish:
-    needs: [tests, arm64]
+    needs: [supersede, tests, arm64]
     if: github.event_name == 'push' && github.ref == 'refs/heads/codex/solrdm-pi-agent' && contains(github.event.head_commit.message, '[publish-pi]')
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -216,6 +241,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
+          current_head="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$GITHUB_REF_NAME" --jq '.object.sha')"
+          test "$current_head" = "$GITHUB_SHA"
           cat > release-notes.md <<'EOF'
           Installable SOLRDM Pi Agent for Raspberry Pi 5 with 8 GB RAM and 64-bit Raspberry Pi OS Bookworm or newer.
 
