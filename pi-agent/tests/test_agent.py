@@ -207,6 +207,13 @@ class ProviderTests(unittest.TestCase):
         self.assertIn("401", str(caught.exception))
         self.assertNotIn("secret-request-key", str(caught.exception))
 
+    def test_provider_token_limit_is_explicitly_incomplete(self):
+        opener = Mock()
+        opener.open.return_value = io.BytesIO(b'{"choices":[{"message":{"content":"Partial answer"},"finish_reason":"length"}]}')
+        reply = call_provider({"provider_url": "https://example.org/v1", "provider_model": "test"}, [], opener=opener)
+        self.assertEqual(reply, "Partial answer")
+        self.assertTrue(reply.incomplete)
+
     def test_malformed_provider_output_is_safe_error(self):
         for body in (b"not JSON", b'{"choices":[]}', b'{"choices":[{"message":null}]}', b'{"choices":[{"message":{"content":[]}}]}'):
             opener = Mock()

@@ -140,15 +140,15 @@ jobs:
       - name: Download complete pinned language and mathematics model weights
         run: |
           python3 pi-agent/scripts/smoke_runtime.py --model-dir pi-output --runtime pi-agent/runtime/bin/llama-server --output pi-output --manifest-only
-          python3 pi-agent/scripts/download_models.py --output pi-output --evidence pi-evidence/download-evidence.json
           curl --fail --location --retry 3 --proto '=https' --proto-redir '=https' \
-            'https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/raw/dd26da440ef0330c47919d1ecae0966d24022222/LICENSE' \
+            'https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct/raw/989aa7980e4cf806f80c7fef2b1adb7bc71aa306/LICENSE' \
             --output pi-output/LICENSE-Qwen-language.txt
           curl --fail --location --retry 3 --proto '=https' --proto-redir '=https' \
             'https://huggingface.co/Qwen/Qwen2.5-Math-1.5B-Instruct/raw/main/LICENSE' \
             --output pi-output/LICENSE-Qwen-mathematics.txt
           grep -q 'Apache License' pi-output/LICENSE-Qwen-language.txt
           grep -q 'Apache License' pi-output/LICENSE-Qwen-mathematics.txt
+          python3 pi-agent/scripts/download_models.py --output pi-output --evidence pi-evidence/download-evidence.json
       - name: Run actual ARM64 inference with both complete model files
         run: |
           python3 pi-agent/scripts/smoke_runtime.py --model-dir pi-output --runtime pi-agent/runtime/bin/llama-server --output pi-evidence 2>&1 | tee pi-evidence/real-inference.log

@@ -6,6 +6,9 @@ Build and verify a real installable Android APK for SOLRDM (Synthetic Observatio
 ## Repository status
 The Android app now includes all 16 Python modules from the user-supplied v0.7 source archive. Six offline operations are exposed in the UI; advanced library workflows are not complete Android feature parity. Preserve the source hashes in docs/source-provenance.json. Do not claim full historical parity or successful Android execution without the matching tests and artifact evidence.
 
+## Raspberry Pi agent
+The user explicitly authorized pretrained models for conversation and file understanding. The separate `pi-agent/` application targets Raspberry Pi 5 with 8 GB RAM and 64-bit Raspberry Pi OS; the original SOLRDM observation engine remains distinct. Local GGUF models, optional online providers, research tools, and reviewed notebook memory must have honest capability and connection status. Bundle model provenance and licenses, verify complete weight checksums, and run real ARM64 inference and installed HTTP chat before publishing a preview. Native ARM64 CI is not physical Raspberry Pi verification. Memory review is not independent factual validation or automatic retraining.
+
 ## Immediate steps
 1. Inspect Gradle, Android Gradle Plugin, Chaquopy repositories, Android SDK, and workflow. Run the GitHub Actions equivalent build in a cloud development environment.
 2. Fix actual compilation failures; retain error logs and document root causes.

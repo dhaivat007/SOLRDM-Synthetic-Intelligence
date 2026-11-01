@@ -52,6 +52,8 @@ The included local models are **text-only**. They can discuss supported text doc
 
 Uploaded document content and web pages are untrusted material. Do not treat generated output, citations, simulations or proposed actions as verified scientific findings. The tools provide explicit assumptions and source metadata when available.
 
+Document review uses excerpts: at most 5,000 characters per file and 7,000 combined, with further shortening to fit the local model context. PDF extraction considers only the first 20 pages and omits images/layout. For longer documents, send relevant sections separately. Video review with an online vision provider uses six sampled frames and no audio; it is not a full viewing of the video.
+
 ## Memory, learning and autonomy
 
 The app can keep local observations and retrieve approved notes by matching relevant words in later questions. New model or internet observations remain unreviewed until the user approves them. This is a searchable notebook, not automatic retraining or semantic embedding of model weights. Bounded task execution can choose among the available tools; it cannot run arbitrary shell commands, purchase items or silently modify unrelated files. The user remains responsible for reviewing consequential decisions.
