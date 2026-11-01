@@ -19,6 +19,7 @@ let browser;
 let serverOutput = '';
 let serverStartError;
 let chatRequests = 0;
+let mockedChatRequests = 0;
 let activePage;
 
 function record(name) { checks.push(name); console.log(`PASS ${name}`); }
@@ -197,6 +198,94 @@ try {
   assert.equal(await page.locator('#attachments .attachment').count(), 2);
   record('TXT, real PNG and valid PDF prepare locally; pending model retains files without claiming analysis');
 
+  // Explicit UI fixtures only: intercept both status and chat in this browser.
+  // The preview server still has no model credential, and no model provider is called.
+  const mockedPayloads = [];
+  const mockText = 'Mocked UI response: the existing projectile calculation is shown below. This fixture is incomplete and does not verify model reasoning or file understanding.';
+  await page.route(`${base}/api/status`, route => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ ...status, modelConfigured: true, model: 'explicit-browser-test-fixture' }),
+  }));
+  await page.route(`${base}/api/chat`, async route => {
+    mockedChatRequests++;
+    mockedPayloads.push(route.request().postDataJSON());
+    await route.fulfill(mockedChatRequests === 1 ? {
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ text: mockText, incomplete: true, receipts: [receipt], citations: [], model: 'explicit-browser-test-fixture' }),
+    } : {
+      status: 503, contentType: 'application/json',
+      body: JSON.stringify({ error: 'Mocked model outage for UI testing.', code: 'MOCK_MODEL_UNAVAILABLE' }),
+    });
+  });
+  await page.locator('#settings-button').click();
+  await page.locator('#refresh-status').click();
+  await page.waitForFunction(() => document.querySelector('#connection-badge')?.textContent.includes('Model configured'));
+  await page.locator('#settings-dialog').getByRole('button', { name: 'Done', exact: true }).click();
+  assert.equal(await page.locator('#attachments .attachment').count(), 2, 'Checking setup must retain prepared files.');
+  const mockPrompt = 'Review these two attachments. This is a UI fixture test.';
+  await page.locator('#message-input').fill(mockPrompt);
+  await page.locator('#send-button').click();
+  await page.waitForFunction(() => document.querySelector('#messages .message.assistant')?.textContent.includes('Mocked UI response:'));
+  assert.equal(mockedChatRequests, 1);
+  assert.equal(mockedPayloads[0].mode, 'review');
+  assert.equal(mockedPayloads[0].text, mockPrompt);
+  assert.deepEqual(mockedPayloads[0].messages, []);
+  assert.deepEqual(mockedPayloads[0].attachments.map(file => file.name), ['observations.txt', 'research-note.pdf']);
+  assert.equal(mockedPayloads[0].attachments[0].kind, 'text');
+  assert.ok(mockedPayloads[0].attachments[0].text.includes('Observed distances: 1, 2, 3 metres.'));
+  assert.equal(mockedPayloads[0].attachments[1].kind, 'pdf');
+  assert.ok(mockedPayloads[0].attachments[1].dataUrl.startsWith('data:application/pdf;base64,'));
+  mockedPayloads[0].attachments.forEach(file => assert.match(file.sha256, /^[a-f0-9]{64}$/));
+  assert.equal(await page.locator('#messages .message').count(), 2);
+  assert.equal(await page.locator('#messages .incomplete-badge').innerText(), 'Incomplete');
+  assert.equal(await page.locator('#messages .message-file').count(), 2);
+  assert.equal(await page.locator('#messages .result-chart').count(), 1);
+  assert.equal(await page.locator('#attachments .attachment').count(), 0);
+  const mockStored = await page.evaluate(() => JSON.parse(localStorage.getItem('solrdm.conversations.v1')));
+  const mockConversation = mockStored.conversations.find(item => item.id === mockStored.currentId);
+  assert.equal(mockConversation.messages[1].content, mockText);
+  assert.equal(mockConversation.messages[1].incomplete, true);
+  assert.equal(mockConversation.messages[1].receipts[0].data.range, receipt.data.range);
+  mockConversation.messages[0].attachments.forEach(file => {
+    assert.deepEqual(Object.keys(file).sort(), ['description', 'kind', 'name', 'sha256']);
+    assert.equal(Object.hasOwn(file, 'text'), false);
+    assert.equal(Object.hasOwn(file, 'dataUrl'), false);
+  });
+  assert.ok(!JSON.stringify(mockStored).includes('Observed distances:'));
+  assert.ok(!JSON.stringify(mockStored).includes('data:application/pdf;base64,'));
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForFunction(() => document.querySelector('#connection-badge')?.textContent.includes('Model configured'));
+  assert.ok((await page.locator('#messages .message.assistant').innerText()).includes(mockText));
+  assert.equal(await page.locator('#messages .incomplete-badge').innerText(), 'Incomplete');
+  assert.equal(await page.locator('#messages .message-file').count(), 2);
+  assert.equal(await page.locator('#messages .result-chart').count(), 1);
+  await page.screenshot({ path: resolve(evidence, 'web-mocked-conversation.png'), fullPage: true });
+  record('Explicit mocked chat renders and persists incomplete response, real prior receipt and attachment metadata without file bytes');
+
+  const retryPrompt = 'Please review my draft again.';
+  const retryBytes = 'Retry-only attachment content; do not retain this in saved history.';
+  await page.locator('#file-input').setInputFiles({ name: 'retry-notes.txt', mimeType: 'text/plain', buffer: Buffer.from(retryBytes) });
+  await page.waitForFunction(() => document.querySelectorAll('#attachments .attachment').length === 1 && !document.querySelector('#file-input').disabled);
+  await page.locator('#message-input').fill(retryPrompt);
+  await page.locator('#send-button').click();
+  await page.waitForFunction(() => document.querySelector('#feedback')?.textContent.includes('Mocked model outage for UI testing.'));
+  assert.equal(mockedChatRequests, 2);
+  assert.equal(mockedPayloads[1].text, retryPrompt);
+  assert.equal(mockedPayloads[1].attachments[0].text, retryBytes);
+  assert.equal(mockedPayloads[1].messages.length, 2);
+  assert.ok(mockedPayloads[1].messages[0].content.includes('File content is not included in this follow-up'));
+  assert.ok(!mockedPayloads[1].messages[0].content.includes('Observed distances:'));
+  assert.equal(await page.locator('#message-input').inputValue(), retryPrompt);
+  assert.equal(await page.locator('#attachments .attachment').count(), 1);
+  assert.ok((await page.locator('#attachments').innerText()).includes('retry-notes.txt'));
+  assert.ok((await page.locator('#feedback').innerText()).includes('kept for retry'));
+  assert.equal(await page.locator('#messages .message').count(), 2, 'A failed request must not add a completed message or duplicate the user draft.');
+  assert.equal(await page.locator('#messages .incomplete-badge').count(), 1);
+  const afterFailure = await page.evaluate(() => localStorage.getItem('solrdm.conversations.v1'));
+  assert.ok(!afterFailure.includes(retryBytes));
+  assert.ok(!afterFailure.includes(retryPrompt));
+  record('Explicit mocked chat failure retains retry text and files without inventing completion or persisting attachment bytes');
+
   // A separate phone browser has its own local history, as the UI explicitly states.
   const mobileContext = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true });
   const mobile = track(await mobileContext.newPage(), 'mobile'); activePage = mobile;
@@ -226,17 +315,18 @@ try {
   record('Phone navigation, workbench, result saving and layout work without horizontal overflow');
 
   assert.deepEqual(pageErrors, [], 'Browser JavaScript page errors are not permitted.');
-  assert.equal(chatRequests, 0, 'This smoke test must not call a model.');
+  assert.equal(mockedChatRequests, 2);
+  assert.equal(chatRequests, mockedChatRequests, 'Every browser chat request must be intercepted by an explicit UI fixture.');
   await writeFile(resolve(evidence, 'browser-smoke.json'), JSON.stringify({
     status: 'passed', browser: 'Chromium via Playwright', checks, pageErrors,
-    modelVerified: false, modelRequests: chatRequests, liveResearchVerified: false,
+    modelVerified: false, modelRequests: 0, mockedChatRequests, unmockedChatRequests: chatRequests - mockedChatRequests, mockedChatUiVerified: true, liveResearchVerified: false,
     filePreparationVerified: ['TXT', 'PNG', 'PDF'], videoPreparationVerified: false,
-    limitations: ['Local preview supplies a development identity; production Sites authentication is not verified.', 'No model provider call, model file understanding or live Crossref search was tested.', 'Video extraction is not covered by this browser run.'],
+    limitations: ['Local preview supplies a development identity; production Sites authentication is not verified.', 'Chat success and failure use explicitly mocked browser responses; no model provider call, model file understanding or live Crossref search was tested.', 'Video extraction is not covered by this browser run.'],
   }, null, 2) + '\n');
   console.log(`Browser smoke passed (${checks.length} checks). Model execution and video understanding were not tested.`);
 } catch (error) {
   if (activePage && !activePage.isClosed()) await activePage.screenshot({ path: resolve(evidence, 'browser-failure.png'), fullPage: true }).catch(() => {});
-  await writeFile(resolve(evidence, 'browser-smoke.json'), JSON.stringify({ status: 'failed', checks, error: error.message, pageErrors, modelVerified: false, modelRequests: chatRequests }, null, 2) + '\n').catch(() => {});
+  await writeFile(resolve(evidence, 'browser-smoke.json'), JSON.stringify({ status: 'failed', checks, error: error.message, pageErrors, modelVerified: false, modelRequests: 0, mockedChatRequests, unmockedChatRequests: chatRequests - mockedChatRequests }, null, 2) + '\n').catch(() => {});
   throw error;
 } finally {
   if (browser) await browser.close().catch(() => {});
